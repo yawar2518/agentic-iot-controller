@@ -363,3 +363,5 @@ agentic-iot-controller/
 | Ahtesham | React frontend, live sensor panel, trend charts |
 
 **PM:** Muhammad Arslan — AgileTech Studio, Lahore
+# agentic-iot-controller
+Created by AI DevOps Agent
