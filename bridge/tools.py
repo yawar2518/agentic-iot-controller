@@ -54,7 +54,15 @@ async def set_relay(state: str) -> dict:
     if state not in ("on", "off"):
         raise ValueError(f"Invalid relay state: {state}. Must be 'on' or 'off'.")
     url = f"{settings.esp32_base_url}/relay"
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        response = await client.post(url, json={"state": state})
-        response.raise_for_status()
-        return {"status": "ok", "relay": state}
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                response = await client.post(url, json={"state": state})
+                response.raise_for_status()
+                return {"status": "ok", "relay": state}
+        except httpx.ReadError:
+            if attempt < 2:
+                import asyncio
+                await asyncio.sleep(0.5)
+                continue
+            raise
