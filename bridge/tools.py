@@ -47,11 +47,14 @@ TOOL_DEFINITIONS = [
 
 async def get_sensor_reading() -> dict:
     """Call ESP32 /sensor endpoint and return temperature and humidity."""
+    from memory import record_reading
     url = f"{settings.esp32_base_url}/sensor"
     async with httpx.AsyncClient(timeout=5.0) as client:
         response = await client.get(url)
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+        record_reading(data["temperature"], data["humidity"])
+        return data
 
 
 async def set_relay(state: str) -> dict:
