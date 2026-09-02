@@ -47,12 +47,12 @@ async def chat(request: ChatRequest):
     """Receive a user message, run the agent, return the reply."""
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
-    
-    result = await run_agent(request.message)
+
+    result = await run_agent(request.message, relay_state=relay_state["state"])
 
     # Update in-memory relay state from agent actions
     for action in result["actions"]:
-        if action["tool"] == "set_relay":
+        if action.get("tool") == "set_relay" and not action.get("blocked"):
             relay_state["state"] = action["state"]
 
     return ChatResponse(reply=result["reply"], actions=result["actions"])

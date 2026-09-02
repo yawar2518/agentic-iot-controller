@@ -1,7 +1,8 @@
 import anthropic
 from config import settings
-from tools import TOOL_DEFINITIONS, get_sensor_reading, set_relay
+from tools import TOOL_DEFINITIONS, get_sensor_reading, set_relay, get_relay_cooldown_status
 from logger import log_sensor_read, log_relay_action
+from memory import get_trend_summary
 
 client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
@@ -18,14 +19,39 @@ Rules you must always follow:
 4. Only control the relay when the user explicitly asks, or when sensor data clearly justifies it.
 5. Keep responses concise and friendly — you are a helpful room assistant.
 6. Always tell the user what action you took and what the current sensor readings are.
+7. If the relay is on cooldown, explain clearly how many seconds remain — do not attempt to toggle it.
+8. Use the sensor trend history to make smarter decisions — a rising trend justifies action sooner.
 """
 
-async def run_agent(user_message: str) -> dict:
+def _build_context_block(relay_state: str) -> str:
+    """Build a dynamic context block injected into every agent request."""
+    cooldown = get_relay_cooldown_status()
+    trend = get_trend_summary()
+
+    cooldown_msg = (
+        f"Relay cooldown: READY (no restriction)"
+        if cooldown["ready"]
+        else f"Relay cooldown: ACTIVE — {cooldown['cooldown_remaining']} seconds remaining before next toggle allowed."
+    )
+
+    return (
+        f"\n\n--- SYSTEM CONTEXT (injected, not from user) ---\n"
+        f"Current relay state: {relay_state}\n"
+        f"{cooldown_msg}\n"
+        f"Sensor trend: {trend}\n"
+        f"--- END SYSTEM CONTEXT ---"
+    )
+
+
+async def run_agent(user_message: str, relay_state: str = "off") -> dict:
     """
     Run the Claude tool-calling agent loop for a single user message.
     Returns the final text reply and a list of actions taken.
     """
-    messages = [{"role": "user", "content": user_message}]
+    context = _build_context_block(relay_state)
+    augmented_message = user_message + context
+
+    messages = [{"role": "user", "content": augmented_message}]
     actions = []
     final_reply = ""
 
@@ -41,14 +67,14 @@ async def run_agent(user_message: str) -> dict:
         # Add Claude's response to the message history
         messages.append({"role": "assistant", "content": response.content})
 
-        # Check stop reason — if end_turn, Claude is done
+        # If end_turn, Claude is done
         if response.stop_reason == "end_turn":
             for block in response.content:
                 if hasattr(block, "text"):
                     final_reply = block.text
             break
 
-        # If stop_reason is tool_use, execute the requested tools
+        # If tool_use, execute the requested tools
         if response.stop_reason == "tool_use":
             tool_results = []
 
@@ -59,7 +85,6 @@ async def run_agent(user_message: str) -> dict:
                 tool_name = block.name
                 tool_input = block.input
 
-                # Execute the correct tool
                 if tool_name == "get_sensor_reading":
                     result = await get_sensor_reading()
                     await log_sensor_read(
@@ -72,11 +97,19 @@ async def run_agent(user_message: str) -> dict:
                 elif tool_name == "set_relay":
                     state = tool_input["state"]
                     result = await set_relay(state)
-                    await log_relay_action(
-                        state=state,
-                        reasoning=f"Agent set relay {state} for: {user_message}"
-                    )
-                    actions.append({"tool": "set_relay", "state": state})
+                    if result.get("status") == "ok":
+                        await log_relay_action(
+                            state=state,
+                            reasoning=f"Agent set relay {state} for: {user_message}"
+                        )
+                        actions.append({"tool": "set_relay", "state": state})
+                    else:
+                        # Rate limited — log it but don't update relay state
+                        actions.append({
+                            "tool": "set_relay",
+                            "blocked": True,
+                            "reason": result.get("reason", "Rate limited")
+                        })
 
                 else:
                     result = {"error": f"Unknown tool: {tool_name}"}
@@ -87,7 +120,6 @@ async def run_agent(user_message: str) -> dict:
                     "content": str(result)
                 })
 
-            # Send tool results back to Claude for next round
             messages.append({"role": "user", "content": tool_results})
 
     return {"reply": final_reply, "actions": actions}
