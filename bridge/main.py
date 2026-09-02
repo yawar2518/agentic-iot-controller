@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -14,6 +15,18 @@ relay_state = {"state": "off"}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+
+    # The ESP32 keeps its relay state across bridge restarts — this
+    # in-memory tracker doesn't. Sync from hardware truth on boot so the
+    # UI doesn't lie about relay state right after a server restart.
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            response = await client.get(f"{settings.esp32_base_url}/relay/status")
+            data = response.json()
+            relay_state["state"] = data.get("relay", "off")
+    except Exception:
+        relay_state["state"] = "off"
+
     yield
 
 # ── App ──

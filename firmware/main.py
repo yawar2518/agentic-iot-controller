@@ -11,8 +11,8 @@ PASSWORD = 'YOUR_WIFI_PASSWORD'
 
 sensor = dht.DHT22(machine.Pin(4))
 relay = machine.Pin(5, machine.Pin.OUT)
-relay.value(1)  # Start with relay ON
-relay_state = 'on'
+relay.value(1)  # Active LOW — 1 = OFF physically
+relay_state = 'off'
 
 def connect_wifi():
     wlan = network.WLAN(network.STA_IF)
@@ -69,6 +69,16 @@ def handle_request(conn):
             else:
                 relay.value(1)   # Active LOW — 1 = OFF
                 relay_state = 'off'
+            body = json.dumps({'relay': relay_state})
+            response = (
+                'HTTP/1.1 200 OK\r\n'
+                'Content-Type: application/json\r\n'
+                'Access-Control-Allow-Origin: *\r\n'
+                f'Content-Length: {len(body)}\r\n'
+                '\r\n' + body
+            )
+
+        elif path == '/relay/status' and method == 'GET':
             body = json.dumps({'relay': relay_state})
             response = (
                 'HTTP/1.1 200 OK\r\n'
