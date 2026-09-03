@@ -1,0 +1,103 @@
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 26px;
+  background: #0d0c0bd9;
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border);
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.header-logo {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid #c8a26a4d;
+  background: #c8a26a1a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.header-logo-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gold);
+}
+
+.header-title {
+  display: flex;
+  align-items: baseline;
+  gap: 11px;
+}
+
+.header-name {
+  font-family: "Instrument Serif", Georgia, serif;
+  font-size: 21px;
+  letter-spacing: -0.005em;
+  color: var(--text);
+}
+
+.header-sub {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.header-status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.status-dot {
+  position: relative;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-dot--on {
+  background: var(--sage);
+}
+
+.status-dot-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--sage);
+  animation: dotPulse 2.4s ease-out infinite;
+}
+
+.status-dot--off {
+  background: #4a463f;
+}
+
+.status-text {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.status-text--on {
+  color: #a8a49b;
+}
+
+.status-text--off {
+  color: var(--text-faint);
+}

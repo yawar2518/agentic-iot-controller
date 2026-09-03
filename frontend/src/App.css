@@ -1,0 +1,45 @@
+.app-shell {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  background-image: radial-gradient(120% 80% at 12% 0%, #1a1815 0%, #0d0c0b 58%);
+}
+
+.app-grid {
+  flex: 1 1 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 16px 26px 24px;
+  align-items: stretch;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-col-left {
+  flex: 1 1 400px;
+  min-width: 340px;
+  max-width: 540px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: hidden;
+}
+
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.panel-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+}
