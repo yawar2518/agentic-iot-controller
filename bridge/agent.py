@@ -15,6 +15,8 @@ SYSTEM_PROMPT = """You are an intelligent IoT controller managing a room environ
 You have access to two tools:
 - get_sensor_reading: reads live temperature and humidity from the room
 - set_relay: turns a physical relay ON or OFF (controls a fan or lamp)
+- schedule_relay_after: schedule relay action after X minutes
+- schedule_relay_at: schedule relay action at specific time of day
 
 Your ONLY job is to help users monitor and control their room environment.
 
@@ -29,6 +31,20 @@ Rules you must always follow:
 8. Always tell the user what action you took and what the current sensor readings are.
 9. If the relay is on cooldown, inform the user you will execute the action automatically once the cooldown expires — then it will happen without them asking again.
 10. Use the sensor trend history to make smarter decisions — a rising trend justifies action sooner.
+11. For time-based requests use the correct scheduling tool:
+    - Convert 12-hour format (4:42pm) to 24-hour format (16:42) before calling schedule_relay_at.
+      Examples: 6pm → 18:00, 4:42pm → 16:42, 8:30am → 08:30, 12pm → 12:00, 12am → 00:00
+    - "turn off after 2 hours" → schedule_relay_after(state="off", delay_minutes=120)
+    - "turn on at 6pm" → schedule_relay_at(state="on", time_str="18:00")
+    - If user gives MULTIPLE time-based instructions in one message, call the
+      scheduling tool MULTIPLE times — once for each scheduled action.
+    - All times are in Pakistan Standard Time (PKT, UTC+5).
+    - Always confirm the scheduled PKT time back to the user.
+    - Always mention the job can be cancelled if they change their mind.
+    - IMPORTANT: Before scheduling, check the current relay state from SYSTEM CONTEXT.
+      If user asks to schedule an action that matches current state (e.g. schedule OFF
+      when relay is already OFF), inform the user that the relay is already in that
+      state and ask if they still want to schedule it, or if they meant something else.
 """
 
 GROQ_TOOL_DEFINITIONS = [
@@ -53,7 +69,7 @@ GROQ_TOOL_DEFINITIONS = [
         "function": {
             "name": "set_relay",
             "description": (
-                "Turn the relay ON or OFF. Controls a physical fan or lamp. "
+                "Turn the relay ON or OFF immediately. Controls a physical fan or lamp. "
                 "Only call when user explicitly requests or sensor data justifies it. "
                 "Respects a 30-second cooldown between toggles."
             ),
@@ -67,6 +83,66 @@ GROQ_TOOL_DEFINITIONS = [
                     }
                 },
                 "required": ["state"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "schedule_relay_after",
+            "description": (
+                "Schedule the relay to turn ON or OFF after a specified number of minutes. "
+                "Use this when the user says 'turn off after X minutes/hours' or "
+                "'keep it on for X minutes'. Convert hours to minutes before calling."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "state": {
+                        "type": "string",
+                        "enum": ["on", "off"],
+                        "description": "Relay state to set at scheduled time."
+                    },
+                    "delay_minutes": {
+                        "type": "number",
+                        "description": "How many minutes from now to execute. Convert hours to minutes."
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Brief reason for this scheduled action."
+                    }
+                },
+                "required": ["state", "delay_minutes", "reason"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "schedule_relay_at",
+            "description": (
+                "Schedule the relay to turn ON or OFF at a specific time of day. "
+                "Use this when the user says 'turn on at 6pm' or 'turn off at 8:30'. "
+                "Convert to 24-hour HH:MM format."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "state": {
+                        "type": "string",
+                        "enum": ["on", "off"],
+                        "description": "Relay state to set at scheduled time."
+                    },
+                    "time_str": {
+                        "type": "string",
+                        "description": "Time in 24-hour HH:MM format. e.g. '18:00' for 6pm."
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Brief reason for this scheduled action."
+                    }
+                },
+                "required": ["state", "time_str", "reason"]
             }
         }
     }
@@ -165,7 +241,20 @@ async def run_agent(
             tool_args = json.loads(tool_call.function.arguments or "{}")
 
             if tool_name == "get_sensor_reading":
-                result = await get_sensor_reading()
+                try:
+                    from main import sensor_cache
+                    if sensor_cache["temperature"] is not None:
+                        result = {
+                            "temperature": sensor_cache["temperature"],
+                            "humidity": sensor_cache["humidity"]
+                        }
+                        from memory import record_reading
+                        record_reading(result["temperature"], result["humidity"])
+                    else:
+                        result = await get_sensor_reading()
+                except ImportError:
+                    result = await get_sensor_reading()
+
                 await log_sensor_read(
                     temperature=result["temperature"],
                     humidity=result["humidity"],
@@ -211,6 +300,36 @@ async def run_agent(
                         "reason": result.get("reason", "Rate limited")
                     })
 
+                result_str = str(result)
+
+            elif tool_name == "schedule_relay_after":
+                from scheduler import schedule_relay_after
+                delay_minutes = tool_args["delay_minutes"]
+                state = tool_args["state"]
+                reason = tool_args.get("reason", "User requested")
+                result = schedule_relay_after(state, delay_minutes, reason)
+                actions.append({
+                    "tool": "schedule_relay_after",
+                    "state": state,
+                    "delay_minutes": delay_minutes,
+                    "job_id": result["job_id"],
+                    "run_at": result["run_at"]
+                })
+                result_str = str(result)
+
+            elif tool_name == "schedule_relay_at":
+                from scheduler import schedule_relay_at
+                state = tool_args["state"]
+                time_str = tool_args["time_str"]
+                reason = tool_args.get("reason", "User requested")
+                result = schedule_relay_at(state, time_str, reason)
+                actions.append({
+                    "tool": "schedule_relay_at",
+                    "state": state,
+                    "time_str": time_str,
+                    "job_id": result["job_id"],
+                    "run_at": result["run_at_pkt"]
+                })
                 result_str = str(result)
 
             else:
