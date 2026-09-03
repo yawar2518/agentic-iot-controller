@@ -1,12 +1,13 @@
 from contextlib import asynccontextmanager
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from agent import run_agent
 from tools import get_sensor_reading
 from logger import init_db, get_all_logs
 from config import settings
+
 
 # ── Relay state tracker (in-memory) ──
 relay_state = {"state": "off"}
@@ -40,7 +41,8 @@ app = FastAPI(
 # ── CORS — allow React frontend on any local port ──
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -62,6 +64,12 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
 
     result = await run_agent(request.message, relay_state=relay_state["state"])
+
+    for action in result["actions"]:
+        if action.get("tool") == "set_relay" and not action.get("blocked"):
+            relay_state["state"] = action["state"]
+
+    return ChatResponse(reply=result["reply"], actions=result["actions"])
 
     # Update in-memory relay state from agent actions
     for action in result["actions"]:

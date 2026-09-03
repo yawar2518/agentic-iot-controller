@@ -1,0 +1,78 @@
+.relay-panel {
+  flex: 0 0 auto;
+  height: 140px;
+  padding: 20px 24px 26px;
+  overflow: hidden;
+}
+
+.relay-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 22px 0 2px;
+}
+
+.relay-indicator {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.relay-ring {
+  position: absolute;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid var(--gold);
+  animation: ringPulse 3.2s ease-out infinite;
+}
+
+.relay-ring-static {
+  position: absolute;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid #ffffff12;
+}
+
+.relay-ring-static--on {
+  border: 1px solid #c8a26a3d;
+}
+
+.relay-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #3a362f;
+}
+
+.relay-dot--on {
+  background: var(--gold);
+  box-shadow: 0 0 18px #c8a26a80;
+}
+
+.relay-state {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: var(--text-faint);
+}
+
+.relay-state--on {
+  color: var(--text);
+}
+
+.relay-caption {
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: #918b80;
+}
+
+.relay-caption--off {
+  color: var(--text-ghost);
+}
