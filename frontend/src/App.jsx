@@ -7,9 +7,9 @@ import ChatWindow from "./components/ChatWindow.jsx";
 import { fetchLogs, fetchRelayStatus, fetchSensor, sendChatMessage } from "./api/client.js";
 import "./App.css";
 
-const SENSOR_POLL_MS = 15000;
-const RELAY_POLL_MS = 10000;
-const LOGS_POLL_MS = 15000;
+const SENSOR_POLL_MS = 30000;
+const RELAY_POLL_MS = 20000;
+const LOGS_POLL_MS = 60000;
 
 function timeStamp(date = new Date()) {
   const hours = date.getHours();
@@ -23,6 +23,8 @@ export default function App() {
   const [sensorLoading, setSensorLoading] = useState(true);
   const [secondsAgo, setSecondsAgo] = useState(0);
   const [relay, setRelay] = useState(null);
+  const [cooldownRemaining, setCooldownRemaining] = useState(null);
+  const [cooldownTotal, setCooldownTotal] = useState(null);
   const [logs, setLogs] = useState([]);
   const [messages, setMessages] = useState([]);
   const [typing, setTyping] = useState(false);
@@ -46,6 +48,8 @@ export default function App() {
     try {
       const data = await fetchRelayStatus();
       setRelay(data.relay);
+      setCooldownRemaining(data.cooldown_remaining);
+      setCooldownTotal(data.cooldown_total);
     } catch {
       // keep the last known relay state — bridge may be mid-restart
     }
@@ -72,6 +76,7 @@ export default function App() {
       if (lastReadAt.current) {
         setSecondsAgo(Math.floor((Date.now() - lastReadAt.current) / 1000));
       }
+      setCooldownRemaining((prev) => (prev != null && prev > 0 ? prev - 1 : prev));
     }, 1000);
 
     return () => {
@@ -147,7 +152,7 @@ export default function App() {
             loading={sensorLoading}
             secondsAgo={secondsAgo}
           />
-          <RelayStatus relay={relay} />
+          <RelayStatus relay={relay} cooldownRemaining={cooldownRemaining} cooldownTotal={cooldownTotal} />
           <TrendChart logs={logs} />
         </div>
         <ChatWindow messages={messages} typing={typing} onSend={handleSend} />

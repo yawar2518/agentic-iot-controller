@@ -43,3 +43,48 @@
   letter-spacing: 0.12em;
   color: var(--accent);
 }
+
+/* Mobile — cards stack and scroll normally; the chat panel becomes a
+   fixed bottom sheet (see ChatWindow.css) instead of sitting in-flow. */
+@media (max-width: 768px) {
+  .app-shell {
+    height: auto;
+    min-height: 100vh;
+    overflow-y: auto;
+  }
+
+  .app-grid {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    overflow: visible;
+    padding: 16px 16px 24px;
+  }
+
+  .app-col-left {
+    flex: none;
+    min-width: 0;
+    max-width: none;
+    height: auto;
+    overflow: visible;
+    /* Reserve space for the collapsed chat sheet so the last card is
+       never hidden behind it: 44px handle row + 46px input row + 14px
+       bottom padding, plus the iOS safe-area inset. Kept in sync with
+       ChatWindow.css. */
+    padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .trend-panel {
+    min-height: 260px;
+  }
+}
+
+/* Phones — tighten outer padding further. */
+@media (max-width: 480px) {
+  .app-grid {
+    padding: 12px 10px 20px;
+  }
+
+  .app-col-left {
+    gap: 12px;
+  }
+}

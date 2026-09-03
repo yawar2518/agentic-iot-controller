@@ -19,7 +19,7 @@ export async function fetchLogs() {
   return data;
 }
 
-/** GET /relay/status → { relay: "on" | "off" } */
+/** GET /relay/status → { relay: "on" | "off", cooldown_remaining, cooldown_total } */
 export async function fetchRelayStatus() {
   const { data } = await client.get("/relay/status");
   return data;

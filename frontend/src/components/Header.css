@@ -12,6 +12,16 @@
   border-bottom: 1px solid var(--border);
 }
 
+@media (max-width: 480px) {
+  .header {
+    padding: 0 14px;
+  }
+
+  .header-sub {
+    display: none;
+  }
+}
+
 .header-brand {
   display: flex;
   align-items: center;
@@ -43,8 +53,9 @@
 }
 
 .header-name {
-  font-family: "Instrument Serif", Georgia, serif;
-  font-size: 21px;
+  font-family: "Instrument Sans", system-ui, sans-serif;
+  font-size: 24px;
+  font-weight: 600;
   letter-spacing: -0.005em;
   color: var(--text);
 }
@@ -54,7 +65,7 @@
   font-size: 9px;
   letter-spacing: 0.24em;
   text-transform: uppercase;
-  color: var(--text-faint);
+  color: var(--text-mute);
 }
 
 .header-status {
@@ -99,5 +110,5 @@
 }
 
 .status-text--off {
-  color: var(--text-faint);
+  color: var(--text-mute);
 }

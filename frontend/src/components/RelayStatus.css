@@ -5,6 +5,30 @@
   overflow: hidden;
 }
 
+.relay-columns {
+  display: flex;
+  height: 100%;
+  gap: 20px;
+}
+
+.relay-col-left {
+  flex: 0 0 60%;
+  min-width: 0;
+}
+
+.relay-divider {
+  flex: none;
+  width: 1px;
+  background: var(--border);
+}
+
+.relay-col-right {
+  flex: 1 1 40%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .relay-row {
   display: flex;
   align-items: center;
@@ -75,4 +99,77 @@
 
 .relay-caption--off {
   color: var(--text-ghost);
+}
+
+.panel-label--small {
+  font-size: 9.5px;
+}
+
+.relay-cooldown-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.relay-cooldown-seconds {
+  font-family: "IBM Plex Mono", monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.1;
+}
+
+.relay-cooldown-sub {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-mute);
+}
+
+.relay-cooldown-ready {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+.relay-progress-track {
+  flex: none;
+  height: 3px;
+  border-radius: 2px;
+  background: #ffffff0d;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.relay-progress-fill {
+  height: 100%;
+  background: #e3c8964d;
+  transition: width 1s linear;
+}
+
+@media (max-width: 480px) {
+  .relay-panel {
+    height: auto;
+  }
+
+  .relay-columns {
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .relay-col-left {
+    flex: none;
+  }
+
+  .relay-divider {
+    width: 100%;
+    height: 1px;
+  }
+
+  .relay-col-right {
+    flex: none;
+  }
 }

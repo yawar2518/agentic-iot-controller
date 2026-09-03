@@ -112,5 +112,13 @@
 }
 
 .trend-legend-swatch--hum {
-  background: #06b6d4;
+  background: #7dd3fc;
+}
+
+.trend-legend-swatch--relay {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: #e3c8961f;
+  border: 1px solid #e3c8964d;
 }
