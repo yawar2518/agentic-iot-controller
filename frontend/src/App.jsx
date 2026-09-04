@@ -48,10 +48,10 @@ export default function App() {
     try {
       const data = await fetchRelayStatus();
       setRelay(data.relay);
-      setCooldownRemaining(data.cooldown_remaining);
+      setCooldownRemaining(data.cooldown_active ? data.cooldown_remaining : 0);
       setCooldownTotal(data.cooldown_total);
     } catch {
-      // keep the last known relay state — bridge may be mid-restart
+      // keep the last known relay state
     }
   }, []);
 
@@ -60,7 +60,7 @@ export default function App() {
       const data = await fetchLogs();
       setLogs(data);
     } catch {
-      // keep last known trend — chart just goes stale, not blank
+      // keep last known trend
     }
   }, []);
 
@@ -76,7 +76,10 @@ export default function App() {
       if (lastReadAt.current) {
         setSecondsAgo(Math.floor((Date.now() - lastReadAt.current) / 1000));
       }
-      setCooldownRemaining((prev) => (prev != null && prev > 0 ? prev - 1 : prev));
+      setCooldownRemaining((prev) => {
+        if (prev == null || prev <= 0) return 0;
+        return prev - 1;
+      });
     }, 1000);
 
     return () => {
@@ -98,7 +101,10 @@ export default function App() {
         const blockedAction = actions.find((a) => a.tool === "set_relay" && a.blocked);
         const sensorAction = actions.find((a) => a.tool === "get_sensor_reading");
 
-        if (relayAction) setRelay(relayAction.state);
+        if (relayAction) {
+          setRelay(relayAction.state);
+          setCooldownRemaining(30);
+        }
 
         setMessages((prev) => [
           ...prev,
@@ -115,13 +121,8 @@ export default function App() {
           },
         ]);
 
-        // A relay toggle or sensor read means the bridge just wrote a new
-        // log row — refresh the trend chart instead of waiting on its timer.
         if (relayAction || sensorAction) pollLogs();
       } catch (err) {
-        // A timeout means the bridge was still working (Claude + a real ESP32
-        // round-trip routinely takes longer than a normal request) — that's a
-        // different problem from the bridge actually being down, so say so.
         const timedOut = err?.code === "ECONNABORTED";
         setMessages((prev) => [
           ...prev,

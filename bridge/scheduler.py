@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import httpx
 from config import settings
 from logger import log_relay_action
+from state import relay_state
 
 # ── Scheduler instance ──
 scheduler = AsyncIOScheduler(
@@ -13,7 +14,8 @@ scheduler = AsyncIOScheduler(
 
 
 async def _execute_scheduled_relay(state: str, reason: str) -> None:
-    """Execute relay action at scheduled time."""
+    import state as app_state
+    import time as time_module
     print(f"[SCHEDULER] Executing relay {state} — reason: {reason}")
     url = f"{settings.esp32_base_url}/relay"
     for attempt in range(3):
@@ -21,6 +23,8 @@ async def _execute_scheduled_relay(state: str, reason: str) -> None:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.post(url, json={"state": state})
                 response.raise_for_status()
+                app_state.last_toggle_at = time_module.time()
+                app_state.relay_state["state"] = state
                 await log_relay_action(
                     state=state,
                     reasoning=f"Scheduled: {reason}"
@@ -48,6 +52,9 @@ def schedule_relay_after(state: str, delay_minutes: float, reason: str) -> dict:
         id=f"relay_{state}_{int(run_time.timestamp())}",
         replace_existing=False
     )
+
+    print(f"[SCHEDULER] Job added: {job.id} relay {state} at {run_time} UTC")
+    print(f"[SCHEDULER] All jobs: {[j.id for j in scheduler.get_jobs()]}")
 
     return {
         "job_id": job.id,
