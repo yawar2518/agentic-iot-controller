@@ -1,0 +1,121 @@
+.job-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.job-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.job-form-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-mute);
+}
+
+.job-form-toggle {
+  display: flex;
+  gap: 8px;
+}
+
+.job-form-toggle-btn {
+  flex: 1 1 0;
+  padding: 9px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-mute);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.job-form-toggle-btn:hover:not(:disabled) {
+  color: var(--text-dim);
+}
+
+.job-form-toggle-btn--active {
+  color: var(--gold-soft);
+  border-color: #c8a26a80;
+  box-shadow: 0 0 14px #c8a26a33;
+}
+
+.job-form-toggle-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.job-form-time-input {
+  padding: 9px 12px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color-scheme: dark;
+}
+
+.job-form-time-input:focus {
+  outline: none;
+  border-color: #c8a26a80;
+}
+
+.job-form-hint {
+  font-size: 11.5px;
+  color: var(--text-mute);
+}
+
+.job-form-hint--error {
+  color: #e0a6a6;
+}
+
+.job-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.job-form-btn {
+  padding: 9px 16px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.job-form-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.job-form-btn--secondary {
+  color: var(--text-mute);
+  background: transparent;
+  border: 1px solid var(--border);
+}
+
+.job-form-btn--secondary:hover:not(:disabled) {
+  color: var(--text-dim);
+  border-color: #ffffff26;
+}
+
+.job-form-btn--primary {
+  color: #1a1509;
+  background: var(--gold-soft);
+  border: 1px solid var(--gold-soft);
+}
+
+.job-form-btn--primary:hover:not(:disabled) {
+  background: var(--gold);
+  border-color: var(--gold);
+}

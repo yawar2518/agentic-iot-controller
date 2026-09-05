@@ -1,0 +1,151 @@
+.jobs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.job-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.job-row:last-child {
+  border-bottom: none;
+}
+
+.job-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3a362f;
+}
+
+.job-dot--on {
+  background: var(--gold);
+  box-shadow: 0 0 10px #c8a26a80;
+}
+
+.job-row-body {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.job-label {
+  font-size: 13px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.job-time {
+  flex: none;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text-mute);
+}
+
+.job-time--unknown {
+  margin-top: 2px;
+  color: var(--text-ghost);
+  font-style: italic;
+}
+
+.job-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+}
+
+.job-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.job-action--edit {
+  height: 22px;
+  padding: 0 8px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+}
+
+.job-action--edit:hover:not(:disabled) {
+  color: var(--text-dim);
+  background: #ffffff0d;
+}
+
+.job-action--delete {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: var(--text-ghost);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.job-action--delete:hover:not(:disabled) {
+  color: var(--sage);
+  background: #ffffff0d;
+}
+
+.job-action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.job-action--confirm-delete {
+  height: 22px;
+  padding: 0 8px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #e0a6a6;
+  border: 1px solid #e0a6a64d;
+}
+
+.job-action--confirm-delete:hover:not(:disabled) {
+  color: #f0bcbc;
+  background: #e0a6a61a;
+}
+
+.jobs-empty {
+  padding: 6px 2px;
+  font-size: 12.5px;
+  color: var(--text-mute);
+}
+
+.jobs-empty--error {
+  color: var(--sage);
+}
+
+.jobs-skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.jobs-skeleton {
+  height: 18px;
+  width: 100%;
+  border-radius: 6px;
+  background: linear-gradient(100deg, #ffffff08 20%, #ffffff1a 40%, #ffffff08 60%);
+  background-size: 220% 100%;
+  animation: shimmer 1.5s linear infinite;
+}
