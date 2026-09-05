@@ -4,6 +4,7 @@ import SensorPanel from "./components/SensorPanel.jsx";
 import RelayStatus from "./components/RelayStatus.jsx";
 import TrendChart from "./components/TrendChart.jsx";
 import ChatWindow from "./components/ChatWindow.jsx";
+import VoiceAgent, { useVoiceAgent } from "./components/VoiceAgent.jsx";
 import { fetchLogs, fetchRelayStatus, fetchSensor, sendChatMessage } from "./api/client.js";
 import "./App.css";
 
@@ -122,25 +123,34 @@ export default function App() {
         ]);
 
         if (relayAction || sensorAction) pollLogs();
+        // Returned so the voice agent can speak the same reply it just
+        // appended to the transcript; the chat UI ignores the value.
+        return reply;
       } catch (err) {
         const timedOut = err?.code === "ECONNABORTED";
+        const failureText = timedOut
+          ? "That's taking longer than expected. The action may have still gone through on the bridge — check the sensor/relay panels, then try again."
+          : "I couldn't reach the bridge server. Check that it's running on port 8000 and try again.";
         setMessages((prev) => [
           ...prev,
           {
             id: `err-${Date.now()}`,
             role: "agent",
-            text: timedOut
-              ? "That's taking longer than expected. The action may have still gone through on the bridge — check the sensor/relay panels, then try again."
-              : "I couldn't reach the bridge server. Check that it's running on port 8000 and try again.",
+            text: failureText,
             time: timeStamp(),
           },
         ]);
+        return failureText;
       } finally {
         setTyping(false);
       }
     },
     [pollLogs]
   );
+
+  // Owns the speech plumbing; its controls render inside the chat input and
+  // its overlay renders at the top level.
+  const voice = useVoiceAgent({ onSend: handleSend });
 
   return (
     <div className="app-shell">
@@ -156,8 +166,9 @@ export default function App() {
           <RelayStatus relay={relay} cooldownRemaining={cooldownRemaining} cooldownTotal={cooldownTotal} />
           <TrendChart logs={logs} />
         </div>
-        <ChatWindow messages={messages} typing={typing} onSend={handleSend} />
+        <ChatWindow messages={messages} typing={typing} onSend={handleSend} voice={voice} />
       </div>
+      <VoiceAgent voice={voice} />
     </div>
   );
 }

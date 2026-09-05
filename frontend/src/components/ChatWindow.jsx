@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { MicIcon } from "./VoiceAgent.jsx";
 import "./ChatWindow.css";
 
 const SUGGESTIONS = ["What's the temperature?", "Turn on the fan", "Is it getting warmer?"];
@@ -36,7 +37,7 @@ const markdownComponents = {
 
 const PLACEHOLDER = "Ask the agent anything — 'what's the temperature?' or 'turn on the fan'";
 
-export default function ChatWindow({ messages, typing, onSend }) {
+export default function ChatWindow({ messages, typing, onSend, voice }) {
   const [draft, setDraft] = useState("");
   const [focused, setFocused] = useState(false);
   const [sheetExpanded, setSheetExpanded] = useState(false);
@@ -213,11 +214,44 @@ export default function ChatWindow({ messages, typing, onSend }) {
               placeholder={PLACEHOLDER}
               className="chat-input"
             />
+            {voice && (
+              <button
+                type="button"
+                onClick={voice.startTalking}
+                className="chat-mic"
+                aria-label="Talk to the agent"
+                title="Talk to the agent"
+              >
+                <MicIcon size={17} />
+              </button>
+            )}
             <button onClick={() => submit()} disabled={!canSend} className={`chat-send ${canSend ? "chat-send--active" : ""}`}>
               ↑
             </button>
           </div>
           <div className="chat-suggestions">
+            {/* Wake toggle sits with the chips rather than in the input row —
+                it is a mode you set once, not a control you reach for. */}
+            {voice?.supportsWake && (
+              <button
+                type="button"
+                onClick={voice.toggleWake}
+                aria-pressed={voice.wakeArmed}
+                className={`chat-suggestion chat-wake ${voice.wakeArmed ? "chat-wake--on" : ""} ${
+                  voice.wakeLive ? "chat-wake--live" : ""
+                }`}
+                title={
+                  voice.wakeArmed
+                    ? voice.wakeLive
+                      ? 'Listening for "Hey Agent"'
+                      : "Starting the microphone…"
+                    : 'Enable the "Hey Agent" wake word'
+                }
+              >
+                <span className="chat-wake-dot" />
+                Hey Agent
+              </button>
+            )}
             {SUGGESTIONS.map((s) => (
               <button key={s} onClick={() => submit(s)} className="chat-suggestion">
                 {s}

@@ -177,8 +177,8 @@ async def get_schedule():
 
 @app.delete("/schedule/{job_id}")
 async def delete_schedule(job_id: str):
-    """Cancel a scheduled job."""
-    success = cancel_job(job_id)
-    if not success:
+    """Cancel a scheduled job by ID, list number, or time."""
+    result = cancel_job(job_id)
+    if not result.get("cancelled"):
         raise HTTPException(status_code=404, detail="Job not found.")
-    return {"cancelled": job_id}
+    return {"cancelled": result.get("label") or job_id}

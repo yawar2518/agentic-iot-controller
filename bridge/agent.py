@@ -19,7 +19,7 @@ You have access to these tools:
 - schedule_relay_after: schedule relay action after X minutes
 - schedule_relay_at: schedule relay action at specific time of day
 - get_scheduled_jobs: list all pending scheduled jobs
-- cancel_scheduled_job: cancel a scheduled job by ID
+- cancel_scheduled_job: cancel a scheduled job by its list number or its time
 
 Your ONLY job is to help users monitor and control their room environment.
 
@@ -45,8 +45,11 @@ Rules you must always follow:
     - Always mention the job can be cancelled if they change their mind.
     - IMPORTANT: Before scheduling, check the current relay state from SYSTEM CONTEXT.
       If user asks to schedule an action that matches current state, inform the user.
-12. If user asks to see scheduled jobs, call get_scheduled_jobs and list them clearly with job ID, state, and run time in PKT.
-13. If user asks to cancel a job, call cancel_scheduled_job with the job ID. If multiple jobs exist, list them first and ask which one to cancel.
+12. NEVER mention job IDs, and never invent one. They are internal. Refer to a scheduled job by its time and what it does — "the 4:00 PM fan ON" — or by its number in the list you just gave.
+13. ALWAYS write times in 12-hour format with AM/PM: "4:00 PM", "8:30 AM". Never 24-hour ("16:00"), never ISO timestamps, never UTC. Times shown to the user are always PKT.
+14. If user asks to see scheduled jobs, call get_scheduled_jobs and read them back as a short numbered list — number, action, and time only. Then ask if they want to cancel any of them.
+15. If user asks to cancel a job, call cancel_scheduled_job with the number from the list or the time the user said. If it is unclear which job they mean, list the jobs and ask which one. Confirm by naming the job you cancelled, not an ID.
+16. Keep all replies under 2 sentences. Be direct and brief. No explanations unless asked.
 """
 
 GROQ_TOOL_DEFINITIONS = [
@@ -169,19 +172,23 @@ GROQ_TOOL_DEFINITIONS = [
         "function": {
             "name": "cancel_scheduled_job",
             "description": (
-                "Cancel a scheduled relay job by its job ID. "
-                "Call this when the user wants to cancel, remove, or stop "
-                "a scheduled job. Ask the user which job to cancel if unclear."
+                "Cancel a scheduled relay job. Call this when the user wants to "
+                "cancel, remove, or stop a scheduled job. Identify the job the "
+                "way the user did — by its number in the list, or by its time."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "job_id": {
+                    "job_ref": {
                         "type": "string",
-                        "description": "The job ID to cancel."
+                        "description": (
+                            "Which job to cancel: its number from the schedule list "
+                            "(e.g. '1', '2') or its time (e.g. '4pm', '16:00'). "
+                            "Never a job ID."
+                        )
                     }
                 },
-                "required": ["job_id"]
+                "required": ["job_ref"]
             }
         }
     }
@@ -360,7 +367,6 @@ async def run_agent(
                     "tool": "schedule_relay_after",
                     "state": state,
                     "delay_minutes": delay_minutes,
-                    "job_id": result["job_id"],
                     "run_at": result["run_at"]
                 })
                 result_str = str(result)
@@ -375,7 +381,6 @@ async def run_agent(
                     "tool": "schedule_relay_at",
                     "state": state,
                     "time_str": time_str,
-                    "job_id": result["job_id"],
                     "run_at": result["run_at_pkt"]
                 })
                 result_str = str(result)
@@ -394,16 +399,14 @@ async def run_agent(
 
             elif tool_name == "cancel_scheduled_job":
                 from scheduler import cancel_job
-                job_id = tool_args["job_id"]
-                success = cancel_job(job_id)
-                result = {
-                    "cancelled": success,
-                    "job_id": job_id
-                }
+                # Older prompts sent job_id; accept either key.
+                job_ref = tool_args.get("job_ref") or tool_args.get("job_id") or ""
+                result = cancel_job(job_ref)
                 actions.append({
                     "tool": "cancel_scheduled_job",
-                    "job_id": job_id,
-                    "success": success
+                    "job_ref": job_ref,
+                    "label": result.get("label"),
+                    "success": result.get("cancelled", False)
                 })
                 result_str = str(result)
 

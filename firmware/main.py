@@ -5,8 +5,8 @@ import dht
 import machine
 import time
 
-SSID = 'AgileTech 2.4G NTL'
-PASSWORD = '@Agile#Tech1@'
+SSID = 'Fiber 5G'
+PASSWORD = '9fef47AF'
 
 sensor = dht.DHT22(machine.Pin(4))
 relay = machine.Pin(5, machine.Pin.OUT)
@@ -25,6 +25,7 @@ def connect_wifi():
     return wlan.ifconfig()[0]
 
 def get_sensor_reading():
+    time.sleep(0.1)
     sensor.measure()
     return {
         'temperature': sensor.temperature(),
@@ -33,7 +34,7 @@ def get_sensor_reading():
 
 def handle_request(conn):
     global relay_state
-    conn.settimeout(3.0)
+    conn.settimeout(10.0)
     try:
         request = conn.recv(1024).decode()
         lines = request.split('\n')

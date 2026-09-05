@@ -244,6 +244,66 @@
   color: #475569;
 }
 
+/* Voice trigger, sharing the send button's geometry so the row stays even. */
+.chat-mic {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border: 1px solid #ffffff12;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-mute);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.chat-mic:hover {
+  color: var(--accent);
+  border-color: #e3c89640;
+  background: #e3c8960f;
+}
+
+/* Wake-word toggle — a suggestion chip with a state dot. */
+.chat-wake {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.chat-wake--on {
+  color: var(--accent);
+  border-color: #e3c89640;
+}
+
+.chat-wake-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4a463f;
+  transition: background 0.2s ease;
+}
+
+/* Armed but not yet live — the mic is still spinning up (or retrying). */
+.chat-wake--on .chat-wake-dot {
+  background: #7a6642;
+}
+
+/* Live means the recogniser is genuinely listening right now. */
+.chat-wake--live .chat-wake-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px #e3c8961f;
+  animation: vaBreathe 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-wake--live .chat-wake-dot {
+    animation: none;
+  }
+}
+
 .chat-send {
   flex: none;
   width: 36px;
