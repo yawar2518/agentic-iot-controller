@@ -266,11 +266,29 @@
   background: #e3c8960f;
 }
 
-/* Wake-word toggle — a suggestion chip with a state dot. */
+/* Wake-word toggle — lives in the input row with mic/send, sized to match
+   their 36px height though its text label makes it wider than the icons. */
 .chat-wake {
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  height: 36px;
+  border: 1px solid #ffffff12;
+  background: transparent;
+  color: var(--text-mute);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  padding: 0 11px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.chat-wake:hover {
+  border-color: #e3c8964d;
+  color: var(--accent);
 }
 
 .chat-wake--on {
