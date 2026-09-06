@@ -3,15 +3,29 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from typing import Optional
 from agent import run_agent
 from logger import init_db, get_all_logs
 from config import settings
-from scheduler import scheduler, get_pending_jobs, cancel_job
+from scheduler import (
+    scheduler,
+    get_pending_jobs,
+    cancel_job,
+    schedule_relay_at,
+    schedule_relay_weekly,
+    schedule_relay_on_date,
+    update_job,
+    WEEKDAYS,
+)
 from tools import set_relay, get_relay_cooldown_status
 import state as app_state
 import asyncio
 import httpx
+import re
 import time
+
+TIME_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 # ── Background sensor polling ──
 async def _poll_sensor():
@@ -87,6 +101,39 @@ class ChatResponse(BaseModel):
 
 class RelayToggleRequest(BaseModel):
     state: str
+
+class ScheduleCreateRequest(BaseModel):
+    state: str
+    time_str: str
+    schedule_type: str = "once"  # "once" | "weekly" | "date"
+    days: Optional[list[str]] = None  # required for "weekly" — e.g. ["mon", "wed", "fri"]
+    date_str: Optional[str] = None  # required for "date" — "YYYY-MM-DD"
+
+class ScheduleUpdateRequest(BaseModel):
+    state: str
+    time_str: str
+    schedule_type: str = "once"
+    days: Optional[list[str]] = None
+    date_str: Optional[str] = None
+
+
+def _validate_schedule_fields(request) -> None:
+    """Shared validation for the create/edit request bodies."""
+    if request.state not in ("on", "off"):
+        raise HTTPException(status_code=400, detail="State must be 'on' or 'off'.")
+    if not TIME_RE.match(request.time_str):
+        raise HTTPException(status_code=400, detail="time_str must be 'HH:MM' in 24-hour format.")
+    if request.schedule_type not in ("once", "weekly", "date"):
+        raise HTTPException(status_code=400, detail="schedule_type must be 'once', 'weekly', or 'date'.")
+    if request.schedule_type == "weekly":
+        if not request.days:
+            raise HTTPException(status_code=400, detail="days is required for schedule_type 'weekly'.")
+        bad = [d for d in request.days if str(d).strip().lower()[:3] not in WEEKDAYS]
+        if bad:
+            raise HTTPException(status_code=400, detail=f"Invalid day(s): {bad}. Use mon/tue/wed/thu/fri/sat/sun.")
+    if request.schedule_type == "date":
+        if not request.date_str or not DATE_RE.match(request.date_str):
+            raise HTTPException(status_code=400, detail="date_str is required for schedule_type 'date', format 'YYYY-MM-DD'.")
 
 
 # ── Routes ──
@@ -173,6 +220,52 @@ async def toggle_relay(request: RelayToggleRequest):
 async def get_schedule():
     """Return all pending scheduled jobs."""
     return get_pending_jobs()
+
+
+@app.post("/schedule")
+async def create_schedule(request: ScheduleCreateRequest):
+    """
+    Schedule a relay action:
+    - schedule_type "once" (default): today, or tomorrow if that time already passed.
+    - schedule_type "weekly": recurring every selected weekday, until cancelled.
+    - schedule_type "date": once, on a specific future calendar date.
+    """
+    _validate_schedule_fields(request)
+
+    try:
+        if request.schedule_type == "weekly":
+            result = schedule_relay_weekly(request.state, request.days, request.time_str, reason="Added via scheduler UI")
+        elif request.schedule_type == "date":
+            result = schedule_relay_on_date(request.state, request.date_str, request.time_str, reason="Added via scheduler UI")
+        else:
+            result = schedule_relay_at(request.state, request.time_str, reason="Added via scheduler UI")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {"created": True, **result}
+
+
+@app.put("/schedule/{job_id}")
+async def edit_schedule(job_id: str, request: ScheduleUpdateRequest):
+    """Edit a pending job's action, time, and/or recurrence, by ID, list number, or time."""
+    _validate_schedule_fields(request)
+
+    result = update_job(
+        job_id,
+        request.state,
+        request.time_str,
+        schedule_type=request.schedule_type,
+        days=request.days,
+        date_str=request.date_str,
+    )
+    if not result.get("updated"):
+        reason = result.get("reason")
+        if reason in ("not_found", "no_jobs"):
+            raise HTTPException(status_code=404, detail="Job not found.")
+        if reason in ("invalid_input", "invalid_state", "invalid_time", "invalid_schedule_type"):
+            raise HTTPException(status_code=400, detail=result.get("detail") or reason)
+        raise HTTPException(status_code=500, detail="Could not update job.")
+    return result
 
 
 @app.delete("/schedule/{job_id}")

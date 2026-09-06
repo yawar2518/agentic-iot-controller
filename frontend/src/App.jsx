@@ -145,20 +145,22 @@ export default function App() {
     setFormError(null);
   }, []);
 
-  const handleFormSubmit = useCallback(async ({ state, time_str }) => {
+  const handleFormSubmit = useCallback(async ({ state, time_str, schedule_type, days, date_str }) => {
     setFormSubmitting(true);
     setFormError(null);
     try {
       if (schedulerView === "edit" && editingJob) {
-        await updateScheduledJob(editingJob.number, { state, time_str });
+        await updateScheduledJob(editingJob.number, { state, time_str, schedule_type, days, date_str });
       } else {
-        await createScheduledJob({ state, time_str });
+        await createScheduledJob({ state, time_str, schedule_type, days, date_str });
       }
       await pollJobs();
       setSchedulerView("list");
       setEditingJob(null);
     } catch (err) {
-      setFormError(err?.message || "Something went wrong. Try again.");
+      // Surface the bridge's actual validation message (e.g. "That date and
+      // time is in the past.") instead of axios's generic status-code text.
+      setFormError(err?.response?.data?.detail || err?.message || "Something went wrong. Try again.");
     } finally {
       setFormSubmitting(false);
     }

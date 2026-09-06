@@ -29,6 +29,53 @@ function formatTime12h(time_str) {
   return `${hour12}:${String(m).padStart(2, "0")} ${meridiem}`;
 }
 
+const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+const DAY_LABELS = { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
+
+/** Mirrors bridge/scheduler.py:_format_days_label so mock mode reads the same. */
+function formatDaysLabel(days) {
+  const ordered = WEEKDAYS.filter((d) => days.includes(d));
+  if (ordered.length === 7) return "every day";
+  if (ordered.join(",") === WEEKDAYS.slice(0, 5).join(",")) return "on weekdays";
+  if (ordered.join(",") === WEEKDAYS.slice(5).join(",")) return "on weekends";
+  return "every " + ordered.map((d) => DAY_LABELS[d]).join(", ");
+}
+
+/** Builds a mock job entry matching normalizeScheduledJob's expectations for any schedule type. */
+function buildMockJob({ state, time_str, schedule_type = "once", days = null, date_str = null }) {
+  const at = formatTime12h(time_str);
+  if (schedule_type === "weekly") {
+    return {
+      state,
+      at,
+      at_24h: time_str,
+      in_minutes: null,
+      label: `Turn the fan ${state.toUpperCase()} at ${at} ${formatDaysLabel(days || [])}`,
+      schedule_type: "weekly",
+      days,
+    };
+  }
+  if (schedule_type === "date") {
+    return {
+      state,
+      at,
+      at_24h: time_str,
+      in_minutes: null,
+      label: `Turn the fan ${state.toUpperCase()} on ${date_str} at ${at}`,
+      schedule_type: "date",
+      date: date_str,
+    };
+  }
+  return {
+    state,
+    at,
+    at_24h: time_str,
+    in_minutes: null,
+    label: `Turn the fan ${state.toUpperCase()} at ${at}`,
+    schedule_type: "once",
+  };
+}
+
 /**
  * The backend never omits `at`/`label` for a job it returns (scheduler.py's
  * _sorted_jobs already drops jobs with no resolvable run time) — this guards
@@ -47,6 +94,10 @@ function normalizeScheduledJob(job, index) {
       : hasTime
         ? `Turn the fan ${String(job?.state ?? "").toUpperCase()} at ${job.at}`
         : "Scheduled job (time unavailable)",
+    // "once" | "weekly" | "date" — see bridge/scheduler.py:_describe.
+    scheduleType: job?.schedule_type === "weekly" || job?.schedule_type === "date" ? job.schedule_type : "once",
+    days: Array.isArray(job?.days) ? job.days : null,
+    date: typeof job?.date === "string" && job.date.length > 0 ? job.date : null,
   };
 }
 
@@ -106,50 +157,33 @@ export async function cancelJob(number) {
 }
 
 /**
- * NOT A REAL BACKEND ROUTE. bridge/main.py has no POST /schedule — only
- * schedule_relay_at()/schedule_relay_after() exist internally, called from
- * the chat agent, not from an HTTP endpoint (see scheduler.py). This mock
- * lets the create form be built and demoed end-to-end now; the live branch
- * throws clearly instead of silently 404ing so a misconfigured USE_MOCKS
- * flag fails loudly rather than looking like a network error.
- *
- * Guessed shape, to confirm with Yawar: POST /schedule { state, time_str }.
+ * POST /schedule { state, time_str, schedule_type, days?, date_str? } → { created: true, ... }
+ * schedule_type: "once" (default, today/tomorrow) | "weekly" (recurring on `days`) | "date" (one-time on `date_str`).
  */
-export async function createScheduledJob({ state, time_str }) {
+export async function createScheduledJob({ state, time_str, schedule_type = "once", days = null, date_str = null }) {
   if (USE_MOCKS) {
-    mockScheduledJobs.push({
-      state,
-      at: formatTime12h(time_str),
-      at_24h: time_str,
-      in_minutes: null,
-      label: `Turn the fan ${state.toUpperCase()} at ${formatTime12h(time_str)}`,
-    });
+    mockScheduledJobs.push(buildMockJob({ state, time_str, schedule_type, days, date_str }));
     return { created: true };
   }
-  throw new Error("Creating scheduled jobs isn't supported by the backend yet — ask Yawar for POST /schedule.");
+  const { data } = await client.post("/schedule", { state, time_str, schedule_type, days, date_str });
+  return data;
 }
 
 /**
- * NOT A REAL BACKEND ROUTE — see createScheduledJob(). Jobs are one-shot and
- * `number` is positional, so there's no in-place reschedule on the backend
- * today; this mock overwrites the mock entry at that position.
- *
- * Guessed shape, to confirm with Yawar: PUT /schedule/{number} { state, time_str }.
+ * PUT /schedule/{number} { state, time_str, schedule_type, days?, date_str? } → { updated: true, ... }
+ * Jobs are one-shot/recurring triggers, so the backend implements this as
+ * remove-and-reschedule rather than an in-place trigger edit — same effect,
+ * new job underneath (can also change schedule_type, e.g. once -> weekly).
  */
-export async function updateScheduledJob(number, { state, time_str }) {
+export async function updateScheduledJob(number, { state, time_str, schedule_type = "once", days = null, date_str = null }) {
   if (USE_MOCKS) {
     const index = Number(number) - 1;
     if (!mockScheduledJobs[index]) throw new Error("Mock job not found");
-    mockScheduledJobs[index] = {
-      state,
-      at: formatTime12h(time_str),
-      at_24h: time_str,
-      in_minutes: null,
-      label: `Turn the fan ${state.toUpperCase()} at ${formatTime12h(time_str)}`,
-    };
+    mockScheduledJobs[index] = buildMockJob({ state, time_str, schedule_type, days, date_str });
     return { updated: true };
   }
-  throw new Error("Editing scheduled jobs isn't supported by the backend yet — ask Yawar for an update endpoint.");
+  const { data } = await client.put(`/schedule/${number}`, { state, time_str, schedule_type, days, date_str });
+  return data;
 }
 
 export default client;

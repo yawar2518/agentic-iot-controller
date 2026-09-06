@@ -4,6 +4,7 @@ from tools import TOOL_DEFINITIONS, get_sensor_reading, set_relay, get_relay_coo
 from logger import log_sensor_read, log_relay_action
 from memory import get_trend_summary
 from state import sensor_cache
+from datetime import datetime, timezone, timedelta
 import json
 import threading
 import time
@@ -11,13 +12,17 @@ import httpx
 
 client = Groq(api_key=settings.GROQ_API_KEY)
 
+PKT_OFFSET = timedelta(hours=5)
+
 SYSTEM_PROMPT = """You are an intelligent IoT controller managing a room environment via an ESP32 device.
 
 You have access to these tools:
 - get_sensor_reading: reads live temperature and humidity from the room
 - set_relay: turns a physical relay ON or OFF (controls a fan or lamp)
 - schedule_relay_after: schedule relay action after X minutes
-- schedule_relay_at: schedule relay action at specific time of day
+- schedule_relay_at: schedule a ONE-TIME relay action at a specific time today/tomorrow
+- schedule_relay_weekly: schedule a RECURRING relay action on selected weekdays, every week, until cancelled
+- schedule_relay_on_date: schedule a ONE-TIME relay action on a specific future calendar date
 - get_scheduled_jobs: list all pending scheduled jobs
 - cancel_scheduled_job: cancel a scheduled job by its list number or its time
 
@@ -35,13 +40,22 @@ Rules you must always follow:
 9. If the relay is on cooldown, inform the user you will execute the action automatically once the cooldown expires — then it will happen without them asking again.
 10. Use the sensor trend history to make smarter decisions — a rising trend justifies action sooner.
 11. For time-based requests use the correct scheduling tool:
-    - Convert 12-hour format (4:42pm) to 24-hour format (16:42) before calling schedule_relay_at.
+    - Convert 12-hour format (4:42pm) to 24-hour format (16:42) before calling any scheduling tool.
       Examples: 6pm -> 18:00, 4:42pm -> 16:42, 8:30am -> 08:30, 12pm -> 12:00, 12am -> 00:00
     - "turn off after 2 hours" -> schedule_relay_after(state="off", delay_minutes=120)
-    - "turn on at 6pm" -> schedule_relay_at(state="on", time_str="18:00")
+    - "turn on at 6pm" (no day/date mentioned) -> schedule_relay_at(state="on", time_str="18:00")
+      — one-time only, today or tomorrow if that time already passed.
+    - "turn on every Monday and Wednesday at 6pm" / "every day at 7am" / "on weekdays at 8am"
+      -> schedule_relay_weekly(state="on", days=["mon","wed"], time_str="18:00")
+      — recurring forever until cancelled. days are lowercase 3-letter: mon/tue/wed/thu/fri/sat/sun.
+      "every day" = all 7. "weekdays" = mon-fri. "weekends" = sat,sun.
+    - "turn on this Friday at 6pm" / "turn off on December 25th at 8am" / "turn on 2026-12-25 6pm"
+      -> schedule_relay_on_date(state="on", date_str="2026-11-06", time_str="18:00")
+      — one-time on that exact calendar date. Compute date_str yourself from the current date in
+      SYSTEM CONTEXT — e.g. resolve "this Friday" or "next Friday" to the real YYYY-MM-DD.
     - If user gives MULTIPLE time-based instructions in one message, call the scheduling tool MULTIPLE times.
     - All times are in Pakistan Standard Time (PKT, UTC+5).
-    - Always confirm the scheduled PKT time back to the user.
+    - Always confirm the scheduled PKT time back to the user, including which day(s)/date for weekly/date jobs.
     - Always mention the job can be cancelled if they change their mind.
     - IMPORTANT: Before scheduling, check the current relay state from SYSTEM CONTEXT.
       If user asks to schedule an action that matches current state, inform the user.
@@ -154,6 +168,83 @@ GROQ_TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "schedule_relay_weekly",
+            "description": (
+                "Schedule the relay to turn ON or OFF on selected weekdays, every week, "
+                "recurring until cancelled. Use this when the user mentions specific days "
+                "('every Monday', 'on weekdays', 'Tue and Thu') or an ongoing weekly routine — "
+                "NOT for a single one-off time."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "state": {
+                        "type": "string",
+                        "enum": ["on", "off"],
+                        "description": "Relay state to set at scheduled time."
+                    },
+                    "days": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+                        },
+                        "description": (
+                            "Weekdays to repeat on, lowercase 3-letter. "
+                            "'every day' -> all 7. 'weekdays' -> mon-fri. 'weekends' -> sat,sun."
+                        )
+                    },
+                    "time_str": {
+                        "type": "string",
+                        "description": "Time in 24-hour HH:MM format. e.g. '18:00' for 6pm."
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Brief reason for this scheduled action."
+                    }
+                },
+                "required": ["state", "days", "time_str", "reason"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "schedule_relay_on_date",
+            "description": (
+                "Schedule a ONE-TIME relay action on a specific future calendar date. Use this "
+                "when the user names a date or a specific day ('this Friday', 'next Monday', "
+                "'December 25th', '2026-12-25') rather than 'today'/'tomorrow'/no day at all. "
+                "Compute the actual YYYY-MM-DD yourself from the current date given in SYSTEM CONTEXT."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "state": {
+                        "type": "string",
+                        "enum": ["on", "off"],
+                        "description": "Relay state to set at scheduled time."
+                    },
+                    "date_str": {
+                        "type": "string",
+                        "description": "Calendar date in 'YYYY-MM-DD' format, resolved from the user's wording and the current date."
+                    },
+                    "time_str": {
+                        "type": "string",
+                        "description": "Time in 24-hour HH:MM format. e.g. '18:00' for 6pm."
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Brief reason for this scheduled action."
+                    }
+                },
+                "required": ["state", "date_str", "time_str", "reason"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_scheduled_jobs",
             "description": (
                 "Get a list of all currently scheduled relay jobs. "
@@ -206,8 +297,11 @@ def _build_context_block(relay_state: str) -> str:
         else f"Relay cooldown: ACTIVE - {cooldown['cooldown_remaining']} seconds remaining."
     )
 
+    now_pkt = datetime.now(timezone.utc) + PKT_OFFSET
+
     return (
         f"\n\n--- SYSTEM CONTEXT (injected, not from user) ---\n"
+        f"Current date/time (PKT): {now_pkt.strftime('%A, %Y-%m-%d %H:%M')}\n"
         f"Current relay state: {relay_state}\n"
         f"{cooldown_msg}\n"
         f"Sensor trend: {trend}\n"
@@ -384,6 +478,46 @@ async def run_agent(
                     "run_at": result["run_at_pkt"]
                 })
                 result_str = str(result)
+
+            elif tool_name == "schedule_relay_weekly":
+                from scheduler import schedule_relay_weekly
+                state = tool_args["state"]
+                days = tool_args["days"]
+                time_str = tool_args["time_str"]
+                reason = tool_args.get("reason", "User requested")
+                try:
+                    result = schedule_relay_weekly(state, days, time_str, reason)
+                    actions.append({
+                        "tool": "schedule_relay_weekly",
+                        "state": state,
+                        "days": result["days"],
+                        "time_str": time_str,
+                        "run_at": result["run_at_pkt"]
+                    })
+                    result_str = str(result)
+                except ValueError as e:
+                    result_str = str({"error": str(e)})
+                    actions.append({"tool": "schedule_relay_weekly", "error": str(e)})
+
+            elif tool_name == "schedule_relay_on_date":
+                from scheduler import schedule_relay_on_date
+                state = tool_args["state"]
+                date_str = tool_args["date_str"]
+                time_str = tool_args["time_str"]
+                reason = tool_args.get("reason", "User requested")
+                try:
+                    result = schedule_relay_on_date(state, date_str, time_str, reason)
+                    actions.append({
+                        "tool": "schedule_relay_on_date",
+                        "state": state,
+                        "date_str": date_str,
+                        "time_str": time_str,
+                        "run_at": result["run_at_pkt"]
+                    })
+                    result_str = str(result)
+                except ValueError as e:
+                    result_str = str({"error": str(e)})
+                    actions.append({"tool": "schedule_relay_on_date", "error": str(e)})
 
             elif tool_name == "get_scheduled_jobs":
                 from scheduler import get_pending_jobs
