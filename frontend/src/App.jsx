@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import Header from "./components/Header.jsx";
 import SensorPanel from "./components/SensorPanel.jsx";
 import RelayStatus from "./components/RelayStatus.jsx";
@@ -32,6 +33,15 @@ function timeStamp(date = new Date()) {
 }
 
 export default function App() {
+  const navigate = useNavigate();
+  const isAdmin = localStorage.getItem("iot_role") === "admin";
+
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem("iot_token");
+    localStorage.removeItem("iot_role");
+    navigate("/login", { replace: true });
+  }, [navigate]);
+
   const [connected, setConnected] = useState(true);
   const [sensor, setSensor] = useState({ temperature: null, humidity: null });
   const [sensorLoading, setSensorLoading] = useState(true);
@@ -258,7 +268,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <Header connected={connected} />
+      <Header connected={connected} isAdmin={isAdmin} onLogout={handleLogout} />
       <div className="app-grid">
         <div className="app-col-left">
           <SensorPanel

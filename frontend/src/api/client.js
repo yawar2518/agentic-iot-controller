@@ -8,6 +8,29 @@ const client = axios.create({
   timeout: 8000,
 });
 
+if (!USE_MOCKS) {
+  client.interceptors.request.use((config) => {
+    const token = localStorage.getItem("iot_token");
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  });
+
+  client.interceptors.response.use(
+    (response) => response,
+    (error) => {
+      const isLoginRequest = error?.config?.url === "/auth/login";
+      if (error?.response?.status === 401 && !isLoginRequest) {
+        localStorage.removeItem("iot_token");
+        localStorage.removeItem("iot_role");
+        window.location.href = "/login";
+      }
+      return Promise.reject(error);
+    }
+  );
+}
+
 /**
  * Mock jobs shaped exactly like GET /schedule — see bridge/scheduler.py:_describe.
  * Mutable so mock cancelJob() can actually remove an entry, mirroring how the
@@ -99,6 +122,18 @@ function normalizeScheduledJob(job, index) {
     days: Array.isArray(job?.days) ? job.days : null,
     date: typeof job?.date === "string" && job.date.length > 0 ? job.date : null,
   };
+}
+
+/** POST /auth/login { username, password } → { access_token, token_type, role } */
+export async function login(username, password) {
+  const { data } = await client.post("/auth/login", { username, password });
+  return data;
+}
+
+/** POST /auth/register { username, password, role } → { message } — requires an admin token. */
+export async function registerUser(username, password, role) {
+  const { data } = await client.post("/auth/register", { username, password, role });
+  return data;
 }
 
 /** GET /sensor → { temperature, humidity } — proxied live from the ESP32. */

@@ -112,3 +112,38 @@
 .status-text--off {
   color: var(--text-mute);
 }
+
+.header-admin-link {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gold-soft);
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid #c8a26a4d;
+  background: #c8a26a1a;
+}
+
+.header-admin-link:hover {
+  color: var(--gold);
+  background: #c8a26a2e;
+}
+
+.header-logout {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  cursor: pointer;
+}
+
+.header-logout:hover {
+  color: var(--text);
+  border-color: var(--text-faint);
+}

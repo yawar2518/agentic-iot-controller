@@ -1,6 +1,7 @@
+import { Link } from "react-router-dom";
 import "./Header.css";
 
-export default function Header({ connected }) {
+export default function Header({ connected, isAdmin, onLogout }) {
   return (
     <header className="header">
       <div className="header-brand">
@@ -13,19 +14,33 @@ export default function Header({ connected }) {
         </div>
       </div>
 
-      {connected ? (
-        <div className="header-status">
-          <span className="status-dot status-dot--on">
-            <span className="status-dot-pulse" />
-          </span>
-          <span className="status-text status-text--on">ESP32 Connected</span>
-        </div>
-      ) : (
-        <div className="header-status">
-          <span className="status-dot status-dot--off" />
-          <span className="status-text status-text--off">ESP32 Offline</span>
-        </div>
-      )}
+      <div className="header-status">
+        {connected ? (
+          <>
+            <span className="status-dot status-dot--on">
+              <span className="status-dot-pulse" />
+            </span>
+            <span className="status-text status-text--on">ESP32 Connected</span>
+          </>
+        ) : (
+          <>
+            <span className="status-dot status-dot--off" />
+            <span className="status-text status-text--off">ESP32 Offline</span>
+          </>
+        )}
+
+        {isAdmin && (
+          <Link to="/admin" className="header-admin-link">
+            Admin
+          </Link>
+        )}
+
+        {onLogout && (
+          <button type="button" className="header-logout" onClick={onLogout}>
+            Logout
+          </button>
+        )}
+      </div>
     </header>
   );
 }
