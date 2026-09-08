@@ -1,13 +1,27 @@
 import { useMemo, useRef, useState } from "react";
 import "./TrendChart.css";
 
-// Chart plot area, in the 0 0 600 210 viewBox.
-const L = 38;
-const R = 562;
-const T = 18;
-const B = 176;
-const GRID_ROWS = 4;
+// Chart plot area, in the 0 0 600 220 viewBox. Two stacked panels (temp on
+// top, humidity below) share this horizontal range and one x-axis at the
+// bottom; only the vertical split differs between them.
+const L = 46;
+const R = 546;
 const VIEW_W = 600;
+const VIEW_H = 220;
+
+// Top panel is slightly taller (~55/45) since temperature is the primary
+// signal; a small gap separates the two panels visually.
+const TOP_T = 10;
+const TOP_B = 108;
+const GAP = 10;
+const BOT_T = TOP_B + GAP; // 118
+const BOT_B = 190;
+const AXIS_Y = 206; // shared x-axis label baseline, below both panels
+
+const Y_TICKS = 3;
+const TEMP_COLOR = "#e3c896"; // sand accent
+const HUM_COLOR = "#7dd3fc"; // cool sky-blue — distinct from the warm relay bands and temp line
+const RELAY_BAND = "#e3c8961f"; // warm, very low opacity
 
 function hhmm(date) {
   return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
@@ -17,6 +31,23 @@ function hhmm(date) {
 function padDomain(min, max, fraction) {
   const span = Math.max(max - min, 1);
   return [min - span * fraction, max + span * fraction];
+}
+
+/** Pick tick values across a domain, formatting with a decimal only if whole numbers would collide. */
+function buildYTicks(min, max, panelTop, panelBottom, unit) {
+  const span = max - min;
+  const wholeValues = new Set();
+  for (let i = 0; i < Y_TICKS; i++) {
+    wholeValues.add(Math.round(max - (i * span) / (Y_TICKS - 1)));
+  }
+  const needsDecimal = wholeValues.size < Y_TICKS;
+
+  return Array.from({ length: Y_TICKS }, (_, i) => {
+    const value = max - (i * span) / (Y_TICKS - 1);
+    const y = panelTop + (i * (panelBottom - panelTop)) / (Y_TICKS - 1);
+    const label = (needsDecimal ? value.toFixed(1) : Math.round(value).toString()) + unit;
+    return { y, label };
+  });
 }
 
 function buildChart(logs) {
@@ -35,35 +66,47 @@ function buildChart(logs) {
   const span = t1 - t0 || 1;
   const px = (ts) => L + ((ts - t0) / span) * (R - L);
 
-  // Temperature and humidity each get their own independent [min, max]
-  // domain and y-mapping function — the equivalent of putting them on
-  // separate left/right axes so one series' scale never distorts the other.
   const temps = reads.map((r) => r.temperature);
   const hums = reads.map((r) => r.humidity);
   const [tMin, tMax] = padDomain(Math.min(...temps), Math.max(...temps), 0.15);
   const [hMin, hMax] = padDomain(Math.min(...hums), Math.max(...hums), 0.15);
 
-  const pyT = (v) => B - ((v - tMin) / (tMax - tMin)) * (B - T); // left axis (temperature)
-  const pyH = (v) => B - ((v - hMin) / (hMax - hMin)) * (B - T); // right axis (humidity)
+  const pyT = (v) => TOP_B - ((v - tMin) / (tMax - tMin)) * (TOP_B - TOP_T);
+  const pyH = (v) => BOT_B - ((v - hMin) / (hMax - hMin)) * (BOT_B - BOT_T);
 
   const path = (rows, y) =>
     rows.map((r, i) => (i ? "L" : "M") + px(new Date(r.timestamp).getTime()).toFixed(1) + " " + y(r).toFixed(1)).join(" ");
 
-  const gridLines = Array.from({ length: GRID_ROWS + 1 }, (_, i) => ({ y: T + (i * (B - T)) / GRID_ROWS }));
+  const yTemp = buildYTicks(tMin, tMax, TOP_T, TOP_B, "°");
+  const yHum = buildYTicks(hMin, hMax, BOT_T, BOT_B, "%");
 
-  const tickIdx = [...new Set([0, Math.round((reads.length - 1) / 3), Math.round(((reads.length - 1) * 2) / 3), reads.length - 1])];
-  const xTicks = tickIdx.map((i) => ({
-    x: px(new Date(reads[i].timestamp).getTime()),
-    label: hhmm(new Date(reads[i].timestamp)),
-  }));
+  // Real-time x-axis ticks: evenly spaced by clock time, not by data index.
+  const TICK_COUNT = 5;
+  const xTicks = Array.from({ length: TICK_COUNT }, (_, i) => {
+    const ts = t0 + (i * span) / (TICK_COUNT - 1);
+    return { x: px(ts), label: hhmm(new Date(ts)) };
+  });
 
-  const markers = logs
+  // Pair consecutive relay_action events into ON intervals: an "on" event
+  // opens a band, the next "off" (or the window's right edge) closes it.
+  const relayEvents = logs
     .filter((r) => r.event_type === "relay_action")
-    .map((r) => ({
-      x: px(new Date(r.timestamp).getTime()),
-      label: (r.relay_state || "").toUpperCase(),
-    }))
-    .filter((m) => m.x >= L && m.x <= R);
+    .map((r) => ({ ts: new Date(r.timestamp).getTime(), state: (r.relay_state || "").toLowerCase() }))
+    .sort((a, b) => a.ts - b.ts);
+
+  const bands = [];
+  let openTs = null;
+  for (const ev of relayEvents) {
+    if (ev.state === "on" && openTs == null) {
+      openTs = ev.ts;
+    } else if (ev.state === "off" && openTs != null) {
+      bands.push({ x1: px(Math.max(openTs, t0)), x2: px(Math.min(ev.ts, t1)) });
+      openTs = null;
+    }
+  }
+  if (openTs != null) {
+    bands.push({ x1: px(Math.max(openTs, t0)), x2: px(t1) });
+  }
 
   const points = reads.map((r) => ({
     x: px(new Date(r.timestamp).getTime()),
@@ -74,15 +117,17 @@ function buildChart(logs) {
     time: new Date(r.timestamp),
   }));
 
+  const last = points[points.length - 1];
+
   return {
     tempPath: path(reads, (r) => pyT(r.temperature)),
     humPath: path(reads, (r) => pyH(r.humidity)),
-    gridLines,
-    yTemp: gridLines.map((g, i) => ({ y: g.y, label: (tMax - (i * (tMax - tMin)) / GRID_ROWS).toFixed(0) + "°" })),
-    yHum: gridLines.map((g, i) => ({ y: g.y, label: (hMax - (i * (hMax - hMin)) / GRID_ROWS).toFixed(0) + "%" })),
+    yTemp,
+    yHum,
     xTicks,
-    markers,
+    bands,
     points,
+    last,
   };
 }
 
@@ -127,73 +172,55 @@ export default function TrendChart({ logs }) {
           <>
             <svg
               ref={svgRef}
-              viewBox="0 0 600 210"
+              viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
               preserveAspectRatio="none"
               className="trend-svg"
               onMouseMove={handleMove}
               onMouseLeave={handleLeave}
             >
-              {chart.gridLines.map((g, i) => (
-                <line key={i} x1={L} x2={R} y1={g.y} y2={g.y} stroke="#ffffff08" strokeWidth="1" strokeDasharray="3 3" />
+              {/* Relay ON bands — span the full height of both panels */}
+              {chart.bands.map((b, i) => (
+                <rect key={i} x={b.x1} y={TOP_T} width={Math.max(b.x2 - b.x1, 0)} height={BOT_B - TOP_T} fill={RELAY_BAND} />
               ))}
-              <line x1={L} x2={R} y1={B} y2={B} stroke="#ffffff10" strokeWidth="1" />
 
+              {/* Top panel — temperature */}
               {chart.yTemp.map((t, i) => (
-                <text key={i} x={30} y={t.y} textAnchor="end" fill="#3b82f6" fontSize="11" fontFamily="IBM Plex Mono" letterSpacing="0.06em" dominantBaseline="middle">
+                <line key={i} x1={L} x2={R} y1={t.y} y2={t.y} stroke="#ffffff08" strokeWidth="1" />
+              ))}
+              {chart.yTemp.map((t, i) => (
+                <text key={i} x={L - 8} y={t.y} textAnchor="end" fill="#94a3b8" fontSize="10" fontFamily="IBM Plex Mono" dominantBaseline="middle">
                   {t.label}
                 </text>
               ))}
-              <text x={L} y={T - 4} textAnchor="start" fill="#3b82f6" fontSize="11" fontFamily="IBM Plex Mono">
-                °C
+              <path d={chart.tempPath} fill="none" stroke={TEMP_COLOR} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="trend-line trend-line--temp" />
+              <text x={R + 6} y={chart.last.tempY} dominantBaseline="middle" fill={TEMP_COLOR} fontSize="11" fontFamily="IBM Plex Mono" fontWeight="600">
+                {chart.last.temperature.toFixed(1)}°
               </text>
 
+              {/* Bottom panel — humidity */}
               {chart.yHum.map((h, i) => (
-                <text key={i} x={570} y={h.y} textAnchor="start" fill="#06b6d4" fontSize="11" fontFamily="IBM Plex Mono" letterSpacing="0.06em" dominantBaseline="middle">
+                <line key={i} x1={L} x2={R} y1={h.y} y2={h.y} stroke="#ffffff08" strokeWidth="1" />
+              ))}
+              {chart.yHum.map((h, i) => (
+                <text key={i} x={L - 8} y={h.y} textAnchor="end" fill="#94a3b8" fontSize="10" fontFamily="IBM Plex Mono" dominantBaseline="middle">
                   {h.label}
                 </text>
               ))}
-              <text x={R} y={T - 4} textAnchor="end" fill="#06b6d4" fontSize="11" fontFamily="IBM Plex Mono">
-                %
+              <path d={chart.humPath} fill="none" stroke={HUM_COLOR} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="trend-line trend-line--hum" />
+              <text x={R + 6} y={chart.last.humY} dominantBaseline="middle" fill={HUM_COLOR} fontSize="11" fontFamily="IBM Plex Mono" fontWeight="600">
+                {chart.last.humidity.toFixed(1)}%
               </text>
 
-              {chart.markers.map((m, i) => {
-                // Stagger consecutive relay-toggle labels between two rows so
-                // they don't collide when several toggles land close together.
-                const even = i % 2 === 0;
-                const dy = even ? -8 : -20;
-                return (
-                  <g key={i}>
-                    <line x1={m.x} x2={m.x} y1={14} y2={176} stroke="#f59e0b" strokeWidth="1" strokeDasharray="4 4" />
-                    <text
-                      x={m.x}
-                      y={8}
-                      dy={dy}
-                      textAnchor={even ? "middle" : "start"}
-                      fill="#f59e0b"
-                      fontSize="9"
-                      fontFamily="IBM Plex Mono"
-                      letterSpacing="0.14em"
-                    >
-                      {m.label}
-                    </text>
-                  </g>
-                );
-              })}
-
-              <path d={chart.humPath} fill="none" stroke="#06b6d4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="trend-line trend-line--hum" />
-              <path d={chart.tempPath} fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="trend-line trend-line--temp" />
-
+              {/* Shared x-axis */}
               {chart.xTicks.map((x, i) => (
-                <text key={i} x={x.x} y={196} textAnchor="middle" fill="#94a3b8" fontSize="11" fontFamily="IBM Plex Mono" letterSpacing="0.08em">
+                <text key={i} x={x.x} y={AXIS_Y} textAnchor="middle" fill="#94a3b8" fontSize="10" fontFamily="IBM Plex Mono" letterSpacing="0.06em">
                   {x.label}
                 </text>
               ))}
 
               {hoverPoint && (
                 <g>
-                  <line x1={hoverPoint.x} x2={hoverPoint.x} y1={T} y2={B} stroke="#ffffff20" strokeWidth="1" />
-                  <circle cx={hoverPoint.x} cy={hoverPoint.tempY} r="3.5" fill="#3b82f6" stroke="#0d0c0b" strokeWidth="1.5" />
-                  <circle cx={hoverPoint.x} cy={hoverPoint.humY} r="3.5" fill="#06b6d4" stroke="#0d0c0b" strokeWidth="1.5" />
+                  <line x1={hoverPoint.x} x2={hoverPoint.x} y1={TOP_T} y2={BOT_B} stroke="#ffffff20" strokeWidth="1" />
                 </g>
               )}
             </svg>
@@ -201,10 +228,10 @@ export default function TrendChart({ logs }) {
             {hoverPoint && hover && (
               <div className="trend-tooltip" style={{ left: hover.left, top: hover.top }}>
                 <div className="trend-tooltip-label">{hhmm(hoverPoint.time)}</div>
-                <div className="trend-tooltip-row" style={{ color: "#3b82f6" }}>
+                <div className="trend-tooltip-row" style={{ color: TEMP_COLOR }}>
                   ● {hoverPoint.temperature.toFixed(1)}°C
                 </div>
-                <div className="trend-tooltip-row" style={{ color: "#06b6d4" }}>
+                <div className="trend-tooltip-row" style={{ color: HUM_COLOR }}>
                   ● {hoverPoint.humidity.toFixed(1)}%
                 </div>
               </div>
@@ -223,6 +250,10 @@ export default function TrendChart({ logs }) {
         <div className="trend-legend-item">
           <span className="trend-legend-swatch trend-legend-swatch--hum" />
           Humidity
+        </div>
+        <div className="trend-legend-item">
+          <span className="trend-legend-swatch trend-legend-swatch--relay" />
+          Relay On
         </div>
       </div>
     </section>

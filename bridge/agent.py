@@ -3,6 +3,8 @@ from config import settings
 from tools import TOOL_DEFINITIONS, get_sensor_reading, set_relay, get_relay_cooldown_status
 from logger import log_sensor_read, log_relay_action
 from memory import get_trend_summary
+from state import sensor_cache
+from datetime import datetime, timezone, timedelta
 import json
 import threading
 import time
@@ -10,25 +12,62 @@ import httpx
 
 client = Groq(api_key=settings.GROQ_API_KEY)
 
+PKT_OFFSET = timedelta(hours=5)
+
 SYSTEM_PROMPT = """You are an intelligent IoT controller managing a room environment via an ESP32 device.
 
-You have access to two tools:
+You have access to these tools:
 - get_sensor_reading: reads live temperature and humidity from the room
 - set_relay: turns a physical relay ON or OFF (controls a fan or lamp)
+- schedule_relay_after: schedule relay action after X minutes
+- schedule_relay_at: schedule a ONE-TIME relay action at a specific time today/tomorrow
+- schedule_relay_weekly: schedule a RECURRING relay action on selected weekdays, every week, until cancelled
+- schedule_relay_on_date: schedule a ONE-TIME relay action on a specific future calendar date
+- get_scheduled_jobs: list all pending scheduled jobs
+- cancel_scheduled_job: cancel a scheduled job by its list number or its time
 
 Your ONLY job is to help users monitor and control their room environment.
 
 Rules you must always follow:
 1. ONLY answer questions related to temperature, humidity, room conditions, or relay/device control.
 2. If the user asks anything unrelated to room environment or device control, politely decline and redirect them. Example: "I'm only able to help with room environment monitoring and device control."
-3. Always check sensor data before deciding to control the relay — never act blind.
-4. Always explain WHY you are taking an action, referencing the actual sensor values.
+3. Always try to check sensor data before deciding to control the relay. However, if the sensor is unavailable and the user explicitly insists or repeats the request, proceed with the relay action without sensor data and inform the user that you are acting without current readings.
+4. Always explain WHY you are taking an action, referencing the actual sensor values if available. If sensor is unavailable, still act on explicit user request and mention sensor was unreachable.
 5. If the user asks about room conditions, always call get_sensor_reading first.
 6. If the user expresses discomfort — feeling hot, warm, stuffy, sweaty, cold, or any similar sentiment — read the sensor and ACT immediately. Turn the relay ON if they feel hot/warm/stuffy. Turn it OFF if they feel cold. Do NOT ask for confirmation — just act and explain what you did.
 7. Keep responses concise and friendly.
 8. Always tell the user what action you took and what the current sensor readings are.
 9. If the relay is on cooldown, inform the user you will execute the action automatically once the cooldown expires — then it will happen without them asking again.
 10. Use the sensor trend history to make smarter decisions — a rising trend justifies action sooner.
+11. For time-based requests use the correct scheduling tool:
+    - Convert 12-hour format (4:42pm) to 24-hour format (16:42) before calling any scheduling tool.
+      Examples: 6pm -> 18:00, 4:42pm -> 16:42, 8:30am -> 08:30, 12pm -> 12:00, 12am -> 00:00
+    - "turn off after 2 hours" -> schedule_relay_after(state="off", delay_minutes=120)
+    - "turn on at 6pm" (no day/date mentioned) -> schedule_relay_at(state="on", time_str="18:00")
+      — one-time only, today or tomorrow if that time already passed.
+    - "turn on every Monday and Wednesday at 6pm" / "every day at 7am" / "on weekdays at 8am"
+      -> schedule_relay_weekly(state="on", days=["mon","wed"], time_str="18:00")
+      — recurring forever until cancelled. days are lowercase 3-letter: mon/tue/wed/thu/fri/sat/sun.
+      "every day" = all 7. "weekdays" = mon-fri. "weekends" = sat,sun.
+    - "turn on this Friday at 6pm" / "turn off on December 25th at 8am" / "turn on 2026-12-25 6pm"
+      -> schedule_relay_on_date(state="on", date_str="2026-11-06", time_str="18:00")
+      — one-time on that exact calendar date. Compute date_str yourself from the current date in
+      SYSTEM CONTEXT — e.g. resolve "this Friday" or "next Friday" to the real YYYY-MM-DD.
+    - If user gives MULTIPLE time-based instructions in one message, call the scheduling tool MULTIPLE times.
+    - All times are in Pakistan Standard Time (PKT, UTC+5).
+    - Always confirm the scheduled PKT time back to the user, including which day(s)/date for weekly/date jobs.
+    - Always mention the job can be cancelled if they change their mind.
+    - IMPORTANT: The current relay state from SYSTEM CONTEXT describes right now, not whenever the
+      schedule will fire — it is irrelevant to scheduling and must NEVER block or delay a scheduling
+      request. Always call the scheduling tool immediately, even if the requested state happens to
+      match the current one. This applies doubly to schedule_relay_weekly and schedule_relay_on_date:
+      the relay's state today has nothing to do with what it should be on a future date or every
+      week. (Current state only matters for set_relay, an action taken right now.)
+12. NEVER mention job IDs, and never invent one. They are internal. Refer to a scheduled job by its time and what it does — "the 4:00 PM fan ON" — or by its number in the list you just gave.
+13. ALWAYS write times in 12-hour format with AM/PM: "4:00 PM", "8:30 AM". Never 24-hour ("16:00"), never ISO timestamps, never UTC. Times shown to the user are always PKT.
+14. If user asks to see scheduled jobs, call get_scheduled_jobs and read them back as a short numbered list — number, action, and time only. Then ask if they want to cancel any of them.
+15. If user asks to cancel a job, call cancel_scheduled_job with the number from the list or the time the user said. If it is unclear which job they mean, list the jobs and ask which one. Confirm by naming the job you cancelled, not an ID.
+16. Keep all replies under 2 sentences. Be direct and brief. No explanations unless asked.
 """
 
 GROQ_TOOL_DEFINITIONS = [
@@ -53,7 +92,7 @@ GROQ_TOOL_DEFINITIONS = [
         "function": {
             "name": "set_relay",
             "description": (
-                "Turn the relay ON or OFF. Controls a physical fan or lamp. "
+                "Turn the relay ON or OFF immediately. Controls a physical fan or lamp. "
                 "Only call when user explicitly requests or sensor data justifies it. "
                 "Respects a 30-second cooldown between toggles."
             ),
@@ -69,6 +108,184 @@ GROQ_TOOL_DEFINITIONS = [
                 "required": ["state"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "schedule_relay_after",
+            "description": (
+                "Schedule the relay to turn ON or OFF after a specified number of minutes. "
+                "Use this when the user says 'turn off after X minutes/hours' or "
+                "'keep it on for X minutes'. Convert hours to minutes before calling."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "state": {
+                        "type": "string",
+                        "enum": ["on", "off"],
+                        "description": "Relay state to set at scheduled time."
+                    },
+                    "delay_minutes": {
+                        "type": "number",
+                        "description": "How many minutes from now to execute. Convert hours to minutes."
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Brief reason for this scheduled action."
+                    }
+                },
+                "required": ["state", "delay_minutes", "reason"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "schedule_relay_at",
+            "description": (
+                "Schedule the relay to turn ON or OFF at a specific time of day. "
+                "Use this when the user says 'turn on at 6pm' or 'turn off at 8:30'. "
+                "Convert to 24-hour HH:MM format."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "state": {
+                        "type": "string",
+                        "enum": ["on", "off"],
+                        "description": "Relay state to set at scheduled time."
+                    },
+                    "time_str": {
+                        "type": "string",
+                        "description": "Time in 24-hour HH:MM format. e.g. '18:00' for 6pm."
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Brief reason for this scheduled action."
+                    }
+                },
+                "required": ["state", "time_str", "reason"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "schedule_relay_weekly",
+            "description": (
+                "Schedule the relay to turn ON or OFF on selected weekdays, every week, "
+                "recurring until cancelled. Use this when the user mentions specific days "
+                "('every Monday', 'on weekdays', 'Tue and Thu') or an ongoing weekly routine — "
+                "NOT for a single one-off time."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "state": {
+                        "type": "string",
+                        "enum": ["on", "off"],
+                        "description": "Relay state to set at scheduled time."
+                    },
+                    "days": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+                        },
+                        "description": (
+                            "Weekdays to repeat on, lowercase 3-letter. "
+                            "'every day' -> all 7. 'weekdays' -> mon-fri. 'weekends' -> sat,sun."
+                        )
+                    },
+                    "time_str": {
+                        "type": "string",
+                        "description": "Time in 24-hour HH:MM format. e.g. '18:00' for 6pm."
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Brief reason for this scheduled action."
+                    }
+                },
+                "required": ["state", "days", "time_str", "reason"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "schedule_relay_on_date",
+            "description": (
+                "Schedule a ONE-TIME relay action on a specific future calendar date. Use this "
+                "when the user names a date or a specific day ('this Friday', 'next Monday', "
+                "'December 25th', '2026-12-25') rather than 'today'/'tomorrow'/no day at all. "
+                "Compute the actual YYYY-MM-DD yourself from the current date given in SYSTEM CONTEXT."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "state": {
+                        "type": "string",
+                        "enum": ["on", "off"],
+                        "description": "Relay state to set at scheduled time."
+                    },
+                    "date_str": {
+                        "type": "string",
+                        "description": "Calendar date in 'YYYY-MM-DD' format, resolved from the user's wording and the current date."
+                    },
+                    "time_str": {
+                        "type": "string",
+                        "description": "Time in 24-hour HH:MM format. e.g. '18:00' for 6pm."
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Brief reason for this scheduled action."
+                    }
+                },
+                "required": ["state", "date_str", "time_str", "reason"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_scheduled_jobs",
+            "description": (
+                "Get a list of all currently scheduled relay jobs. "
+                "Call this when the user asks to see pending schedules, "
+                "upcoming jobs, or what is scheduled."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cancel_scheduled_job",
+            "description": (
+                "Cancel a scheduled relay job. Call this when the user wants to "
+                "cancel, remove, or stop a scheduled job. Identify the job the "
+                "way the user did — by its number in the list, or by its time."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "job_ref": {
+                        "type": "string",
+                        "description": (
+                            "Which job to cancel: its number from the schedule list "
+                            "(e.g. '1', '2') or its time (e.g. '4pm', '16:00'). "
+                            "Never a job ID."
+                        )
+                    }
+                },
+                "required": ["job_ref"]
+            }
+        }
     }
 ]
 
@@ -81,11 +298,14 @@ def _build_context_block(relay_state: str) -> str:
     cooldown_msg = (
         "Relay cooldown: READY (no restriction)"
         if cooldown["ready"]
-        else f"Relay cooldown: ACTIVE — {cooldown['cooldown_remaining']} seconds remaining."
+        else f"Relay cooldown: ACTIVE - {cooldown['cooldown_remaining']} seconds remaining."
     )
+
+    now_pkt = datetime.now(timezone.utc) + PKT_OFFSET
 
     return (
         f"\n\n--- SYSTEM CONTEXT (injected, not from user) ---\n"
+        f"Current date/time (PKT): {now_pkt.strftime('%A, %Y-%m-%d %H:%M')}\n"
         f"Current relay state: {relay_state}\n"
         f"{cooldown_msg}\n"
         f"Sensor trend: {trend}\n"
@@ -94,8 +314,8 @@ def _build_context_block(relay_state: str) -> str:
 
 
 def _execute_delayed_relay(state: str, delay: int, user_message: str) -> None:
-    """Run in a thread — wait for cooldown then execute relay action synchronously."""
-    print(f"[DELAYED RELAY] Thread started — waiting {delay + 1}s to set relay {state}")
+    """Run in a thread - wait for cooldown then execute relay action synchronously."""
+    print(f"[DELAYED RELAY] Thread started - waiting {delay + 1}s to set relay {state}")
     time.sleep(delay + 1)
     print(f"[DELAYED RELAY] Executing relay {state}")
 
@@ -104,7 +324,7 @@ def _execute_delayed_relay(state: str, delay: int, user_message: str) -> None:
         try:
             response = httpx.post(url, json={"state": state}, timeout=10.0)
             response.raise_for_status()
-            print(f"[DELAYED RELAY] Success — relay is now {state}")
+            print(f"[DELAYED RELAY] Success - relay is now {state}")
             return
         except Exception as e:
             if attempt < 2:
@@ -163,14 +383,36 @@ async def run_agent(
         for tool_call in message.tool_calls:
             tool_name = tool_call.function.name
             tool_args = json.loads(tool_call.function.arguments or "{}")
+            print(f"[AGENT] Tool called: {tool_name} args: {tool_args}")
 
             if tool_name == "get_sensor_reading":
-                result = await get_sensor_reading()
-                await log_sensor_read(
-                    temperature=result["temperature"],
-                    humidity=result["humidity"],
-                    reasoning=f"Agent requested sensor read for: {user_message}"
-                )
+                if sensor_cache["temperature"] is not None:
+                    result = {
+                        "temperature": sensor_cache["temperature"],
+                        "humidity": sensor_cache["humidity"]
+                    }
+                    from memory import record_reading
+                    record_reading(result["temperature"], result["humidity"])
+                else:
+                    try:
+                        result = await get_sensor_reading()
+                    except Exception:
+                        result = {"error": "ESP32 unreachable - sensor data unavailable"}
+                        result_str = str(result)
+                        actions.append({"tool": "get_sensor_reading", "result": result})
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": result_str
+                        })
+                        continue
+
+                if "error" not in result:
+                    await log_sensor_read(
+                        temperature=result["temperature"],
+                        humidity=result["humidity"],
+                        reasoning=f"Agent requested sensor read for: {user_message}"
+                    )
                 actions.append({"tool": "get_sensor_reading", "result": result})
                 result_str = str(result)
 
@@ -194,7 +436,7 @@ async def run_agent(
                         daemon=True
                     )
                     thread.start()
-                    print(f"[DELAYED RELAY] Thread launched — relay {state} in {seconds_remaining + 1}s")
+                    print(f"[DELAYED RELAY] Thread launched - relay {state} in {seconds_remaining + 1}s")
 
                     actions.append({
                         "tool": "set_relay",
@@ -211,6 +453,99 @@ async def run_agent(
                         "reason": result.get("reason", "Rate limited")
                     })
 
+                result_str = str(result)
+
+            elif tool_name == "schedule_relay_after":
+                from scheduler import schedule_relay_after
+                delay_minutes = tool_args["delay_minutes"]
+                state = tool_args["state"]
+                reason = tool_args.get("reason", "User requested")
+                result = schedule_relay_after(state, delay_minutes, reason)
+                actions.append({
+                    "tool": "schedule_relay_after",
+                    "state": state,
+                    "delay_minutes": delay_minutes,
+                    "run_at": result["run_at"]
+                })
+                result_str = str(result)
+
+            elif tool_name == "schedule_relay_at":
+                from scheduler import schedule_relay_at
+                state = tool_args["state"]
+                time_str = tool_args["time_str"]
+                reason = tool_args.get("reason", "User requested")
+                result = schedule_relay_at(state, time_str, reason)
+                actions.append({
+                    "tool": "schedule_relay_at",
+                    "state": state,
+                    "time_str": time_str,
+                    "run_at": result["run_at_pkt"]
+                })
+                result_str = str(result)
+
+            elif tool_name == "schedule_relay_weekly":
+                from scheduler import schedule_relay_weekly
+                state = tool_args["state"]
+                days = tool_args["days"]
+                time_str = tool_args["time_str"]
+                reason = tool_args.get("reason", "User requested")
+                try:
+                    result = schedule_relay_weekly(state, days, time_str, reason)
+                    actions.append({
+                        "tool": "schedule_relay_weekly",
+                        "state": state,
+                        "days": result["days"],
+                        "time_str": time_str,
+                        "run_at": result["run_at_pkt"]
+                    })
+                    result_str = str(result)
+                except ValueError as e:
+                    result_str = str({"error": str(e)})
+                    actions.append({"tool": "schedule_relay_weekly", "error": str(e)})
+
+            elif tool_name == "schedule_relay_on_date":
+                from scheduler import schedule_relay_on_date
+                state = tool_args["state"]
+                date_str = tool_args["date_str"]
+                time_str = tool_args["time_str"]
+                reason = tool_args.get("reason", "User requested")
+                try:
+                    result = schedule_relay_on_date(state, date_str, time_str, reason)
+                    actions.append({
+                        "tool": "schedule_relay_on_date",
+                        "state": state,
+                        "date_str": date_str,
+                        "time_str": time_str,
+                        "run_at": result["run_at_pkt"]
+                    })
+                    result_str = str(result)
+                except ValueError as e:
+                    result_str = str({"error": str(e)})
+                    actions.append({"tool": "schedule_relay_on_date", "error": str(e)})
+
+            elif tool_name == "get_scheduled_jobs":
+                from scheduler import get_pending_jobs
+                result = get_pending_jobs()
+                if not result:
+                    result_str = "No scheduled jobs found."
+                else:
+                    result_str = str(result)
+                actions.append({
+                    "tool": "get_scheduled_jobs",
+                    "jobs": result
+                })
+
+            elif tool_name == "cancel_scheduled_job":
+                from scheduler import cancel_job
+                # Older prompts sent job_id; accept either key.
+                job_ref = tool_args.get("job_ref") or tool_args.get("job_id") or ""
+                result = cancel_job(job_ref)
+                actions.append({
+                    "tool": "cancel_scheduled_job",
+                    "job_ref": job_ref,
+                    "label": result.get("label"),
+                    "success": result.get("cancelled", False)
+                })
                 result_str = str(result)
 
             else:

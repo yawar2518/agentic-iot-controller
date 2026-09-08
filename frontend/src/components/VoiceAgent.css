@@ -1,0 +1,228 @@
+/* The voice controls live in the chat input row and the suggestion chips —
+   see ChatWindow.css for .chat-mic and .chat-wake. */
+
+/* ------------------------------------------------------------------ toast */
+
+.va-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  z-index: 90;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 11px 16px;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: #1a1815f2;
+  backdrop-filter: blur(10px);
+  color: var(--text-dim);
+  font-family: "Instrument Sans", sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  box-shadow: 0 10px 34px #00000073;
+  animation: fadeSlideUp 0.25s ease both;
+}
+
+/* ---------------------------------------------------------------- overlay */
+
+.va-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000000cc;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.va-overlay--in {
+  animation: vaOverlayIn 0.26s ease both;
+}
+
+.va-overlay--out {
+  animation: vaOverlayOut 0.24s ease both;
+  pointer-events: none;
+}
+
+.va-close {
+  position: absolute;
+  top: 18px;
+  right: 20px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: #ffffff08;
+  color: var(--text-mute);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+
+.va-close:hover {
+  color: var(--text);
+  background: #ffffff14;
+}
+
+.va-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 24px;
+  text-align: center;
+
+  /* Per-phase orb palette, overridden by the .va-stage--* rules below. */
+  --va-c1: #f4e2bd;
+  --va-c2: #c8a26a;
+  --va-c3: #7d6039;
+  --va-glow: #e3c89645;
+}
+
+.va-stage--listening {
+  --va-c1: #d6e9ff;
+  --va-c2: #5b9bd5;
+  --va-c3: #2b4f7d;
+  --va-glow: #5b9bd559;
+}
+
+.va-stage--speaking {
+  --va-c1: #dfeee6;
+  --va-c2: #8fa89b;
+  --va-c3: #445d52;
+  --va-glow: #8fa89b59;
+}
+
+.va-orb-wrap {
+  position: relative;
+  width: 180px;
+  height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.va-orb {
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 28%, #fffaf0 0%, var(--va-c1) 26%, var(--va-c2) 62%, var(--va-c3) 100%);
+  box-shadow: 0 0 70px 14px var(--va-glow), inset 0 -18px 44px #00000047;
+  animation: vaBreathe 2s ease-in-out infinite;
+  transition: box-shadow 0.5s ease;
+}
+
+.va-stage--processing .va-orb {
+  animation-duration: 1.2s;
+}
+
+.va-ring {
+  position: absolute;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  border: 1px solid var(--va-c2);
+  animation: vaRing 2.4s ease-out infinite;
+}
+
+.va-ring--delayed {
+  animation-delay: 1.2s;
+}
+
+.va-status {
+  margin-top: 38px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #ffffff;
+}
+
+.va-caption {
+  margin-top: 12px;
+  max-width: 460px;
+  font-family: "Instrument Sans", sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text-mute);
+}
+
+/* --------------------------------------------------------------- keyframes */
+
+@keyframes vaBreathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.15);
+  }
+}
+
+@keyframes vaRing {
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1.85);
+    opacity: 0;
+  }
+}
+
+@keyframes vaOverlayIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes vaOverlayOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* ----------------------------------------------------------------- mobile */
+
+@media (max-width: 768px) {
+  /* Clear the collapsed chat sheet: 104px of sheet plus the safe-area inset,
+     matching the reservation in App.css. */
+  .va-toast {
+    bottom: calc(120px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+@media (max-width: 480px) {
+  .va-orb-wrap,
+  .va-orb,
+  .va-ring {
+    width: 136px;
+    height: 136px;
+  }
+
+  .va-status {
+    margin-top: 30px;
+  }
+
+  .va-caption {
+    font-size: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .va-orb,
+  .va-ring,
+  .va-overlay--in,
+  .va-overlay--out,
+  .va-toast {
+    animation: none;
+  }
+}
