@@ -154,6 +154,12 @@ export async function fetchRelayStatus() {
   return data;
 }
 
+/** GET /preview → { temperature, humidity, relay, last_updated } — public, no auth required. */
+export async function fetchPreview() {
+  const { data } = await client.get("/preview");
+  return data;
+}
+
 /**
  * POST /chat → { reply, actions } — runs the Claude tool-calling agent.
  * This can take several Claude round-trips plus a real ESP32 call (get
