@@ -15,6 +15,8 @@ class Settings:
 
     @property
     def esp32_base_url(self) -> str:
+        if self.ESP32_PORT == 443:
+            return f"https://{self.ESP32_IP}"
         return f"http://{self.ESP32_IP}:{self.ESP32_PORT}"
 
 settings = Settings()
