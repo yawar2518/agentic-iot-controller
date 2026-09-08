@@ -1,0 +1,121 @@
+.admin-shell {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  background-image: radial-gradient(120% 80% at 12% 0%, #1a1815 0%, #0d0c0b 58%);
+}
+
+.admin-card {
+  width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 28px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 24px 60px -20px #00000080;
+}
+
+.admin-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-heading {
+  margin: 0;
+  font-family: "Instrument Sans", system-ui, sans-serif;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.admin-back-link {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  white-space: nowrap;
+}
+
+.admin-back-link:hover {
+  color: var(--gold-soft);
+}
+
+.admin-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.admin-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.admin-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+}
+
+.admin-input {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  color: var(--text);
+  font-family: inherit;
+}
+
+.admin-input:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+
+.admin-select {
+  appearance: none;
+  cursor: pointer;
+}
+
+.admin-error {
+  font-size: 13px;
+  color: #e0665f;
+}
+
+.admin-success {
+  font-size: 13px;
+  color: #8fa89b;
+}
+
+.admin-button {
+  margin-top: 6px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid #c8a26a4d;
+  background: #c8a26a1a;
+  color: var(--gold-soft);
+  font-family: "Instrument Sans", system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.admin-button:hover:not(:disabled) {
+  background: #c8a26a2e;
+}
+
+.admin-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
