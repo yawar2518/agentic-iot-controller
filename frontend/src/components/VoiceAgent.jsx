@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import "./VoiceAgent.css";
 
-const GREETING = "Hey, how can I help you?";
 const WAKE_STORAGE_KEY = "voice-agent-wake-armed";
 
 // End-of-command detection is silence-based rather than a fixed budget, so a
@@ -47,6 +46,22 @@ function isQuestion(text) {
  */
 const WAKE_RE = /\b(hey|hay|hi|ay)\s*(agents?|agend|agenda|ancient|augent|edgend)\b/;
 
+/**
+ * "Hey" alone also wakes it — deliberately. "Agent" is the part that most
+ * often gets mangled or dropped by the recogniser (quiet mic, accent,
+ * trailing off), and interim results arrive word-by-word: waiting for the
+ * full "hey agent" to be heard *and* matched adds a beat of visible lag once
+ * "agent" fails to land. Firing on "hey" by itself means it's usually already
+ * awake before the user finishes saying "agent" — it reads as an instant
+ * wake for the phrase people actually think they're saying.
+ *
+ * Trade-off, accepted deliberately: this also wakes on "hey" in unrelated
+ * speech nearby. "Hay" is included as its standard speech-to-text mishearing;
+ * "hi"/"ay" are left out of the bare form since they're common words in
+ * everyday sentences (bare "hi" would wake on almost any greeting nearby).
+ */
+const BARE_WAKE_RE = /\b(hey|hay)\b/;
+
 /** Punctuation → space, then collapse, so word boundaries stay meaningful. */
 function normalize(text) {
   return String(text || "")
@@ -58,9 +73,11 @@ function normalize(text) {
 
 function isWakePhrase(text) {
   const spaced = normalize(text);
-  // Also test with spaces removed, for when the recogniser runs the two words
-  // together as a single token ("heyagent").
-  return WAKE_RE.test(spaced) || WAKE_RE.test(spaced.replace(/ /g, ""));
+  const squashed = spaced.replace(/ /g, "");
+  // Squashed form matters for the full-phrase pattern (recogniser sometimes
+  // runs the two words together as "heyagent") but not for the bare word —
+  // squashing "hey there" into "heythere" would falsely lose its boundary.
+  return WAKE_RE.test(spaced) || WAKE_RE.test(squashed) || BARE_WAKE_RE.test(spaced);
 }
 
 // Opt-in transcript logging: append ?voicedebug to the URL to see exactly
@@ -132,7 +149,6 @@ function pickVoice(voices) {
 }
 
 const PHASE_LABEL = {
-  greeting: "Speaking…",
   listening: "Listening…",
   processing: "Processing…",
   speaking: "Speaking…",
@@ -619,19 +635,21 @@ export function useVoiceAgent({ onSend }) {
     openRef.current = true;
     turnRef.current = 0;
     lastQuestionRef.current = "";
-    setPhase("greeting");
     setCaption("");
-    speak(GREETING, () => {
-      if (openRef.current) listenForCommand();
-    });
-  }, [listenForCommand, speak, stopWake]);
+    // No spoken greeting: it made every wake cost a couple of seconds of TTS
+    // before the mic was even listening. Straight into listenForCommand()
+    // instead — the overlay opening and the "Listening…" label are enough of
+    // a cue that it's ready, and the person can start talking immediately.
+    listenForCommand();
+  }, [listenForCommand, stopWake]);
   openAgentRef.current = openAgent;
 
   /** The button press doubles as the gesture iOS needs to unlock audio. */
   const handleMicPress = useCallback(() => {
     if (SUPPORTS_TTS) {
       // A zero-length utterance inside the gesture is what unlocks
-      // speechSynthesis on iOS; without it the greeting is silently dropped.
+      // speechSynthesis on iOS; without it the agent's first spoken reply is
+      // silently dropped (there's no greeting anymore to unlock it earlier).
       try {
         window.speechSynthesis.speak(new SpeechSynthesisUtterance(""));
       } catch {
@@ -661,7 +679,7 @@ export function useVoiceAgent({ onSend }) {
   // ------------------------------------------------------------------ effects
 
   // Chrome populates the voice list asynchronously — touching it on mount
-  // means a real en-US voice is available by the time the greeting plays.
+  // means a real en-US voice is available by the time the first reply speaks.
   useEffect(() => {
     if (!SUPPORTS_TTS) return;
     window.speechSynthesis.getVoices();

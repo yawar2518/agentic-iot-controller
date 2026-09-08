@@ -5,8 +5,8 @@ import dht
 import machine
 import time
 
-SSID = 'Fiber 5G'
-PASSWORD = '9fef47AF'
+SSID = 'AgileTech 2.4G NTL'
+PASSWORD = '@Agile#Tech1@'
 
 sensor = dht.DHT22(machine.Pin(4))
 relay = machine.Pin(5, machine.Pin.OUT)
