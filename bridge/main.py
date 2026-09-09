@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import os
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -61,10 +62,23 @@ async def lifespan(app: FastAPI):
     await init_db()
     create_users_table()
 
+    # Auto-create admin user from .env on startup
+    admin_username = os.getenv("ADMIN_USERNAME", "")
+    admin_password = os.getenv("ADMIN_PASSWORD", "")
+    if admin_username and admin_password:
+        try:
+            create_user(admin_username, admin_password, role="admin")
+            print(f"[AUTH] Admin user '{admin_username}' created.")
+        except ValueError:
+            print(f"[AUTH] Admin user '{admin_username}' already exists.")
+
     # Sync relay state from ESP32
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
-            response = await client.get(f"{settings.esp32_base_url}/relay/status")
+            response = await client.get(
+                f"{settings.esp32_base_url}/relay/status",
+                headers={"ngrok-skip-browser-warning": "true"}
+            )
             data = response.json()
             app_state.relay_state["state"] = data.get("relay", "off")
     except Exception:
