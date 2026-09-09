@@ -157,10 +157,11 @@ async def _execute_scheduled_relay(state: str, reason: str) -> None:
     import time as time_module
     print(f"[SCHEDULER] Executing relay {state} — reason: {reason}")
     url = f"{settings.esp32_base_url}/relay"
+    headers = {"ngrok-skip-browser-warning": "true"}
     for attempt in range(3):
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.post(url, json={"state": state})
+                response = await client.post(url, json={"state": state}, headers=headers)
                 response.raise_for_status()
                 app_state.last_toggle_at = time_module.time()
                 app_state.relay_state["state"] = state

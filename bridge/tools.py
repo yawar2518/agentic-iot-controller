@@ -5,6 +5,8 @@ from config import settings
 
 RELAY_COOLDOWN_SECONDS: int = settings.COOLDOWN_SECONDS
 
+NGROK_HEADERS = {"ngrok-skip-browser-warning": "true"}
+
 TOOL_DEFINITIONS = [
     {
         "name": "get_sensor_reading",
@@ -48,7 +50,7 @@ async def get_sensor_reading() -> dict:
     for attempt in range(3):
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url)
+                response = await client.get(url, headers=NGROK_HEADERS)
                 response.raise_for_status()
                 data = response.json()
                 record_reading(data["temperature"], data["humidity"])
@@ -85,9 +87,10 @@ async def set_relay(state: str) -> dict:
     for attempt in range(3):
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.post(url, json={"state": state})
+                response = await client.post(
+                    url, json={"state": state}, headers=NGROK_HEADERS
+                )
                 response.raise_for_status()
-                # Only update on confirmed success
                 app_state.last_toggle_at = time.time()
                 return {"status": "ok", "relay": state}
         except (httpx.ReadError, httpx.ConnectError,
